@@ -1,28 +1,31 @@
-# SAP_Retail landing-zone architecture
+# SAP_Retail fresh landing zone architecture
 
-## Conceptual model
-
-The framework separates management, security, logging, network, and workload responsibilities. Each responsibility is represented as a logical boundary, not as an environment-specific account name or identifier. A private implementation assigns approved accounts, regions, network ranges, and identity groups through controlled configuration.
-
-```text
-Governance boundary
-  ├─ Management responsibility
-  ├─ Security responsibility
-  ├─ Logging responsibility
-  ├─ Network responsibility
-  └─ Workload responsibilities
+```mermaid
+flowchart TB
+  mgmt[Management account <MANAGEMENT_ACCOUNT_ID>]
+  root[Fresh organization root]
+  sec[Security OU]
+  infra[Infrastructure OU]
+  workloads[Workloads OU]
+  kenya[Kenya Production / Non-Production]
+  uganda[Uganda Production / Non-Production\nempty structural OUs]
+  sandbox[Sandbox OU\nempty]
+  log[Log Archive\nObject Lock]
+  security[Security Tooling\nGuardDuty Security Hub Config Analyzer]
+  network[Network\nshared TGW/RAM]
+  mgmt --> root
+  root --> sec & infra & workloads & sandbox
+  sec --> log & security
+  infra --> network
+  workloads --> kenya & uganda
 ```
 
-## Template boundaries
+- The management account bootstraps the fresh organization; it is never created by CloudFormation.
+- Four member accounts (Log Archive, Security Tooling, Networking, Kenya Non-Production) are declared in `templates/01-org/organization.yaml`, each with its own enable flag, and sit in their target OUs. Their display names were set with `aws account put-account-name` because CloudFormation cannot rename an account (design decision 22). No pre-existing account was moved or invited.
+- Every approved workload account owns a two-AZ VPC. The Network account provides separately owned shared services and Transit Gateway. CIDR, route, VPN and DNS ownership require a signed dependency map and smoke tests.
+- Security Tooling and Log Archive are separate Security OU functions. The Log Archive bucket is encrypted, versioned, retained and Object Lock protected with a 1,460-day GOVERNANCE default. Control Tower keeps its own managed log buckets (no Object Lock); the write-once archive is fed from them by S3 replication (design decisions 13, 14 and 18).
+- Uganda has no account, VPC, StackSet instance, assignment, VPN, monitoring, or cost deployment. `eu-west-1` is a proposed operating region, not an AWS Uganda Region.
+- Data Platform is protected from VPC, workload, StackSet, invitation, enrollment and OU-move actions until its separately approved compatibility and migration window.
 
-`organization-foundation.yaml` is an opt-in starting point. Its default leaves organization creation disabled, so review and approval occur before a private deployment enables it.
-
-`account-baseline.yaml` demonstrates how a baseline can receive an approved central logging destination. It intentionally does not create or name a real destination, network, account, policy, or identity resource.
-
-## Deployment boundary
-
-Use this repository for public design review and reusable patterns only. Run deployments from a private repository that contains approved parameter values, change records, and operator procedures. No template here performs automatic migration, account lifecycle actions, or external service configuration.
-
-## Evidence boundary
-
-Record change approvals, validation output, and deployment evidence in the private implementation’s controlled evidence store. The public traceability document identifies evidence categories without exposing customer operations.
+## Delivery controls
+`deploy.ps1` fails closed unless the caller is account `<MANAGEMENT_ACCOUNT_ID>`, all parameters are resolved, and no Control Tower operation is in progress. It creates review-only change sets; execution remains a manual, approved runbook action. The GitHub OIDC roles are limited to the configured repository/ref/environment claims.

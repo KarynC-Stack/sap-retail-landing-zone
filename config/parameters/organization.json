@@ -1,0 +1,7 @@
+[
+  { "ParameterKey": "RootId", "ParameterValue": "<ROOT_ID>" },
+  { "ParameterKey": "CreateApprovedDevAccountsLogArchive", "ParameterValue": "true" },
+  { "ParameterKey": "CreateApprovedDevAccountsSecurityTooling", "ParameterValue": "true" },
+  { "ParameterKey": "CreateApprovedDevAccountsNetworking", "ParameterValue": "true" },
+  { "ParameterKey": "CreateApprovedDevAccountsKenyaNonProduction", "ParameterValue": "true" }
+]

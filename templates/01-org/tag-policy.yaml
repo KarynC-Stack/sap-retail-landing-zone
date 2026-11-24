@@ -1,0 +1,20 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail standard Organizations tag policy (Q7).
+Parameters:
+  RootId: { Type: String, AllowedPattern: '^r-[0-9a-z]{4,32}$' }
+  ApnTagValue: { Type: String, Default: '<APN_ID>' }
+Resources:
+  StandardTagPolicy:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: sr-standard-tags
+      Description: SAP_Retail tagging dictionary
+      Type: TAG_POLICY
+      TargetIds: [!Ref RootId]
+      Content:
+        tags:
+          ManagedBy: { tag_key: { '@@assign': ManagedBy }, tag_value: { '@@assign': [Kitstek] } }
+          Client: { tag_key: { '@@assign': Client }, tag_value: { '@@assign': [SAP_Retail] } }
+          Country: { tag_key: { '@@assign': Country }, tag_value: { '@@assign': [Kenya, Uganda, Shared] } }
+          Environment: { tag_key: { '@@assign': Environment }, tag_value: { '@@assign': [Production, Non-Production, Shared] } }
+          aws-apn-id: { tag_key: { '@@assign': aws-apn-id }, tag_value: { '@@assign': [!Ref ApnTagValue] } }

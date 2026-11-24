@@ -1,0 +1,32 @@
+# cfn-guard rules for the SAP_Retail landing zone (run in .github/workflows/pr-validate.yml)
+
+# Organizations accounts, OUs and the landing zone must never be deleted by a stack operation.
+let org_resources = Resources.*[ Type in ['AWS::Organizations::Account', 'AWS::Organizations::OrganizationalUnit', 'AWS::ControlTower::LandingZone'] ]
+rule org_resources_retained when %org_resources !empty {
+  %org_resources.DeletionPolicy == 'Retain'
+  %org_resources.UpdateReplacePolicy == 'Retain'
+}
+
+# S3 buckets: encryption, public access block and TLS-only handled per template; enforce encryption + PAB here.
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+rule buckets_encrypted when %buckets !empty {
+  %buckets.Properties.BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm in ['AES256', 'aws:kms']
+}
+rule buckets_block_public when %buckets !empty {
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+  %buckets.Properties.PublicAccessBlockConfiguration.IgnorePublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+}
+
+# Identity Center permission sets: 1-hour sessions (Q3).
+let permission_sets = Resources.*[ Type == 'AWS::SSO::PermissionSet' ]
+rule permission_sets_one_hour when %permission_sets !empty {
+  %permission_sets.Properties.SessionDuration == 'PT1H'
+}
+
+# IAM roles carry the APN attribution tag (Q7).
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+rule roles_apn_tagged when %roles !empty {
+  some %roles.Properties.Tags[*].Key == 'aws-apn-id'
+}

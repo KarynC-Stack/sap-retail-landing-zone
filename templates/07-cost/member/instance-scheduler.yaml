@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Non-Production instance auto-scheduler - stops and starts EC2 instances tagged Schedule=office-hours outside business hours (Q7, Q8; Kit D7). Deployed to Non-Production OUs by StackSet sr-lz-instance-scheduler.
+# Opt-in by tag so nothing is stopped unexpectedly. Times are Africa/Nairobi (EAT) via EventBridge Scheduler.
+
+Parameters:
+  ScheduleTagKey:
+    Type: String
+    Default: Schedule
+  ScheduleTagValue:
+    Type: String
+    Default: office-hours
+  StartCron:
+    Type: String
+    Default: "cron(0 7 ? * MON-FRI *)"
+  StopCron:
+    Type: String
+    Default: "cron(0 19 ? * MON-FRI *)"
+  TimeZone:
+    Type: String
+    Default: Africa/Nairobi
+  ApnTagValue:
+    Type: String
+    Default: "<APN_ID>"
+
+Resources:
+  SchedulerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sr-lz-instance-scheduler
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: start-stop-tagged
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:instance/*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/Schedule": !Ref ScheduleTagValue
+              # Instances with encrypted EBS volumes need KMS grants to start.
+              - Effect: Allow
+                Action: kms:CreateGrant
+                Resource: "*"
+                Condition:
+                  Bool: { kms:GrantIsForAWSResource: "true" }
+      Tags:
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  SchedulerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: sr-lz-instance-scheduler
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 120
+      Role: !GetAtt SchedulerFunctionRole.Arn
+      Environment:
+        Variables:
+          TAG_KEY: !Ref ScheduleTagKey
+          TAG_VALUE: !Ref ScheduleTagValue
+      Tags:
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+      Code:
+        ZipFile: |
+          import os, json, boto3
+          ec2 = boto3.client("ec2")
+          def handler(event, context):
+              action = event.get("action")
+              state = "stopped" if action == "start" else "running"
+              ids = []
+              for page in ec2.get_paginator("describe_instances").paginate(Filters=[
+                      {"Name": f"tag:{os.environ['TAG_KEY']}", "Values": [os.environ["TAG_VALUE"]]},
+                      {"Name": "instance-state-name", "Values": [state]}]):
+                  ids += [i["InstanceId"] for r in page["Reservations"] for i in r["Instances"]]
+              if ids:
+                  (ec2.start_instances if action == "start" else ec2.stop_instances)(InstanceIds=ids)
+              print(json.dumps({"action": action, "instances": ids}))
+              return {"action": action, "count": len(ids)}
+
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sr-lz-instance-scheduler-invoke
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: invoke
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt SchedulerFunction.Arn
+      Tags:
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  StartSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: sr-lz-start-office-hours
+      ScheduleExpression: !Ref StartCron
+      ScheduleExpressionTimezone: !Ref TimeZone
+      FlexibleTimeWindow: { Mode: "OFF" }
+      Target:
+        Arn: !GetAtt SchedulerFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action": "start"}'
+
+  StopSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: sr-lz-stop-office-hours
+      ScheduleExpression: !Ref StopCron
+      ScheduleExpressionTimezone: !Ref TimeZone
+      FlexibleTimeWindow: { Mode: "OFF" }
+      Target:
+        Arn: !GetAtt SchedulerFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action": "stop"}'

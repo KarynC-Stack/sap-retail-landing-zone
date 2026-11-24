@@ -1,0 +1,17 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail one-OU-at-a-time Control Tower baseline registration. Invoke this stack once per approved OU after the prior operation is SUCCEEDED.
+Parameters:
+  BaselineIdentifier: { Type: String, AllowedPattern: '^arn:aws:controltower:.*:baseline/.+$' }
+  BaselineVersion: { Type: String }
+  TargetOuArn: { Type: String, AllowedPattern: '^arn:aws:organizations::\d{12}:ou/o-[a-z0-9]+/ou-[a-z0-9-]+$' }
+  IdentityCenterEnabledBaselineArn: { Type: String, AllowedPattern: '^arn:aws:controltower:.*:enabledbaseline/.+$' }
+Resources:
+  OuBaseline:
+    Type: AWS::ControlTower::EnabledBaseline
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BaselineIdentifier: !Ref BaselineIdentifier
+      BaselineVersion: !Ref BaselineVersion
+      TargetIdentifier: !Ref TargetOuArn
+      Parameters: [{ Key: IdentityCenterEnabledBaselineArn, Value: !Ref IdentityCenterEnabledBaselineArn }]

@@ -1,0 +1,9 @@
+[
+  { "ParameterKey": "RootId", "ParameterValue": "<ROOT_ID>" },
+  { "ParameterKey": "SecurityOuId", "ParameterValue": "<SECURITY_OU_ID>" },
+  { "ParameterKey": "KenyaOuId", "ParameterValue": "<KENYA_OU_ID>" },
+  { "ParameterKey": "KenyaNonProductionOuId", "ParameterValue": "<KENYA_NONPRODUCTION_OU_ID>" },
+  { "ParameterKey": "UgandaOuId", "ParameterValue": "<UGANDA_OU_ID>" },
+  { "ParameterKey": "UgandaNonProductionOuId", "ParameterValue": "<UGANDA_NONPRODUCTION_OU_ID>" },
+  { "ParameterKey": "SandboxOuId", "ParameterValue": "<SANDBOX_OU_ID>" }
+]

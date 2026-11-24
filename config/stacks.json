@@ -1,0 +1,16 @@
+{
+  "_comment": "Fresh SAP_Retail deployment order. All identifiers are supplied after bootstrap/adoption; no import from another organization is supported.",
+  "region": "eu-west-1",
+  "stacks": [
+    { "name": "sr-lz-org-bootstrap", "template": "templates/00-bootstrap/organization.yaml", "parameters": null, "pipeline": false },
+    { "name": "sr-lz-organization-foundation", "template": "templates/01-org/organization.yaml", "parameters": "config/parameters/organization.json", "pipeline": false },
+    { "name": "sr-lz-controltower-service-roles", "template": "templates/02-controltower/service-roles.yaml", "parameters": null, "pipeline": false },
+    { "name": "sr-lz-controltower", "template": "templates/02-controltower/landing-zone.yaml", "parameters": "config/parameters/controltower.json", "pipeline": false },
+    { "name": "sr-lz-log-archive", "template": "templates/05-logging/log-archive.yaml", "parameters": "config/parameters/log-archive.json", "pipeline": false },
+    { "name": "sr-lz-scps", "template": "templates/01-org/scps.yaml", "parameters": "config/parameters/scps.json", "pipeline": false },
+    { "name": "sr-lz-tag-policy", "template": "templates/01-org/tag-policy.yaml", "parameters": "config/parameters/tag-policy.json", "pipeline": false },
+    { "name": "sr-lz-identity", "template": "templates/03-identity/permission-sets.yaml", "parameters": "config/parameters/identity.json", "pipeline": false },
+    { "name": "sr-lz-stacksets", "template": "templates/04-security/stacksets.yaml", "parameters": "config/parameters/stacksets.json", "pipeline": false },
+    { "name": "sr-lz-cost", "template": "templates/07-cost/cost-governance.yaml", "parameters": "config/parameters/cost.json", "pipeline": false }
+  ]
+}

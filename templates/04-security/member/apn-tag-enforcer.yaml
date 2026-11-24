@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: APN tag enforcer - EventBridge + Lambda that adds the aws-apn-id partner tag (and the standard tag set where missing) to resources at creation (Q4, Q7; Kit D7). Deployed to every member account by StackSet sr-lz-apn-tag-enforcer.
+# Second enforcement layer behind SCP sr-root-require-apn-tag (preventive). This one is corrective:
+# it tags what the SCP cannot cover (resources without tag-on-create support, volumes, snapshots, etc.).
+# It only ADDS missing tags; it never overwrites existing tag values.
+
+Parameters:
+  ApnTagValue:
+    Type: String
+    Default: "<APN_ID>"
+  ManagedByValue:
+    Type: String
+    Default: Kitstek
+  ClientValue:
+    Type: String
+    Default: SAP_Retail
+
+Resources:
+  EnforcerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sr-lz-apn-tag-enforcer
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: tag-resources
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: TagOnly
+                Effect: Allow
+                Action:
+                  - tag:TagResources
+                  - tag:GetResources
+                  - ec2:CreateTags
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                  - s3:GetBucketTagging
+                  - s3:PutBucketTagging
+                  - rds:AddTagsToResource
+                  - lambda:TagResource
+                  - dynamodb:TagResource
+                  - elasticloadbalancing:AddTags
+                  - elasticfilesystem:TagResource
+                  - sns:TagResource
+                  - sqs:TagQueue
+                  - kms:TagResource
+                  - logs:TagResource
+                Resource: "*"
+      Tags:
+        - { Key: ManagedBy, Value: !Ref ManagedByValue }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  EnforcerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/sr-lz-apn-tag-enforcer
+      RetentionInDays: 365
+
+  EnforcerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: EnforcerLogGroup
+    Properties:
+      FunctionName: sr-lz-apn-tag-enforcer
+      Description: Adds aws-apn-id and the standard Kitstek tag set to newly created resources.
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      MemorySize: 128
+      Role: !GetAtt EnforcerRole.Arn
+      Environment:
+        Variables:
+          APN_TAG_VALUE: !Ref ApnTagValue
+          MANAGED_BY: !Ref ManagedByValue
+          CLIENT: !Ref ClientValue
+      Tags:
+        - { Key: ManagedBy, Value: !Ref ManagedByValue }
+        - { Key: Client, Value: !Ref ClientValue }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+      Code:
+        ZipFile: |
+          import json, os, boto3
+          REQUIRED = {
+              "aws-apn-id": os.environ["APN_TAG_VALUE"],
+              "ManagedBy": os.environ["MANAGED_BY"],
+              "Client": os.environ["CLIENT"],
+          }
+          tagging = boto3.client("resourcegroupstaggingapi")
+          ec2 = boto3.client("ec2")
+
+          def _arns(event):
+              d = event.get("detail", {})
+              src, name = d.get("eventSource", ""), d.get("eventName", "")
+              resp, req = d.get("responseElements") or {}, d.get("requestParameters") or {}
+              region, acct = event["region"], event["account"]
+              if src == "ec2.amazonaws.com":
+                  ids = []
+                  if name == "RunInstances":
+                      ids = [i["instanceId"] for i in resp.get("instancesSet", {}).get("items", [])]
+                      vols = []
+                      if ids:
+                          r = ec2.describe_instances(InstanceIds=ids)
+                          for res in r["Reservations"]:
+                              for inst in res["Instances"]:
+                                  vols += [m["Ebs"]["VolumeId"] for m in inst.get("BlockDeviceMappings", []) if "Ebs" in m]
+                      ids += vols
+                  else:
+                      for k in ("volumeId", "snapshotId", "groupId", "vpcId", "subnetId", "natGatewayId",
+                                "internetGatewayId", "routeTableId", "networkAclId", "allocationId", "imageId"):
+                          v = resp.get(k) or (resp.get(k.replace("Id", "")) or {}).get(k)
+                          if isinstance(v, str):
+                              ids.append(v)
+                  return ("ec2", ids)
+              if src == "s3.amazonaws.com" and name == "CreateBucket":
+                  return ("arn", [f"arn:aws:s3:::{req.get('bucketName')}"])
+              if src == "rds.amazonaws.com":
+                  arn = resp.get("dBInstanceArn") or resp.get("dBClusterArn") or resp.get("dBSnapshotArn")
+                  return ("arn", [arn] if arn else [])
+              if src == "lambda.amazonaws.com":
+                  return ("arn", [resp.get("functionArn")] if resp.get("functionArn") else [])
+              if src == "dynamodb.amazonaws.com":
+                  arn = (resp.get("tableDescription") or {}).get("tableArn")
+                  return ("arn", [arn] if arn else [])
+              if src == "elasticloadbalancing.amazonaws.com":
+                  return ("arn", [lb["loadBalancerArn"] for lb in resp.get("loadBalancers", [])])
+              if src == "elasticfilesystem.amazonaws.com":
+                  arn = resp.get("fileSystemArn")
+                  return ("arn", [arn] if arn else [])
+              if src == "sns.amazonaws.com":
+                  return ("arn", [resp.get("topicArn")] if resp.get("topicArn") else [])
+              if src == "sqs.amazonaws.com" and resp.get("queueUrl"):
+                  q = resp["queueUrl"].rstrip("/").split("/")[-1]
+                  return ("arn", [f"arn:aws:sqs:{region}:{acct}:{q}"])
+              return ("arn", [])
+
+          def handler(event, context):
+              kind, ids = _arns(event)
+              ids = [i for i in ids if i]
+              if not ids:
+                  print(json.dumps({"skip": event.get("detail", {}).get("eventName")}))
+                  return
+              if kind == "ec2":
+                  existing = {}
+                  for t in ec2.describe_tags(Filters=[{"Name": "resource-id", "Values": ids}])["Tags"]:
+                      existing.setdefault(t["ResourceId"], set()).add(t["Key"])
+                  for rid in ids:
+                      missing = [{"Key": k, "Value": v} for k, v in REQUIRED.items() if k not in existing.get(rid, set())]
+                      if missing:
+                          ec2.create_tags(Resources=[rid], Tags=missing)
+                          print(json.dumps({"tagged": rid, "keys": [m["Key"] for m in missing]}))
+                  return
+              for arn in ids:
+                  current = {}
+                  try:
+                      page = tagging.get_resources(ResourceARNList=[arn])
+                      for m in page.get("ResourceTagMappingList", []):
+                          current = {t["Key"]: t["Value"] for t in m.get("Tags", [])}
+                  except Exception as e:  # tagging API does not cover every type
+                      print(f"lookup {arn}: {e}")
+                  missing = {k: v for k, v in REQUIRED.items() if k not in current}
+                  if missing:
+                      r = tagging.tag_resources(ResourceARNList=[arn], Tags=missing)
+                      print(json.dumps({"tagged": arn, "keys": list(missing), "failed": r.get("FailedResourcesMap", {})}))
+
+  CreateEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: sr-lz-apn-tag-enforcer
+      Description: Resource-creation API calls (via CloudTrail) trigger the APN tag enforcer.
+      State: ENABLED
+      EventPattern:
+        detail-type: [AWS API Call via CloudTrail]
+        detail:
+          eventSource:
+            - ec2.amazonaws.com
+            - s3.amazonaws.com
+            - rds.amazonaws.com
+            - lambda.amazonaws.com
+            - dynamodb.amazonaws.com
+            - elasticloadbalancing.amazonaws.com
+            - elasticfilesystem.amazonaws.com
+            - sns.amazonaws.com
+            - sqs.amazonaws.com
+          eventName:
+            - RunInstances
+            - CreateVolume
+            - CreateSnapshot
+            - CreateImage
+            - CreateSecurityGroup
+            - CreateVpc
+            - CreateSubnet
+            - CreateNatGateway
+            - CreateInternetGateway
+            - CreateRouteTable
+            - AllocateAddress
+            - CreateBucket
+            - CreateDBInstance
+            - CreateDBCluster
+            - CreateDBSnapshot
+            - CreateFunction20150331
+            - CreateTable
+            - CreateLoadBalancer
+            - CreateFileSystem
+            - CreateTopic
+            - CreateQueue
+          errorCode: [{ exists: false }]
+      Targets:
+        - Id: enforcer
+          Arn: !GetAtt EnforcerFunction.Arn
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EnforcerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CreateEventsRule.Arn
+
+Outputs:
+  FunctionArn: { Value: !GetAtt EnforcerFunction.Arn }

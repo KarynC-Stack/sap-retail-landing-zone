@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail Control Tower landing zone service roles in the management account. Required before CreateLandingZone.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    arch: Three IAM service roles under the /service-role/ path that AWS Control Tower requires to launch and maintain a landing zone via the landing zone APIs.
+    must:
+      - Role names and the /service-role/ path are fixed by AWS Control Tower and must not be renamed.
+      - Trust policies follow the AWS Control Tower documentation exactly; adding SourceAccount or SourceArn conditions is not documented for these roles and risks breaking landing zone setup.
+      - Deploy only in the organization management account.
+Resources:
+  ControlTowerAdminRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Gives AWS Control Tower access to the infrastructure that maintains the landing zone.
+        mutable: review-required
+    Properties:
+      RoleName: AWSControlTowerAdmin
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: controltower.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSControlTowerServiceRolePolicy
+      Policies:
+        - PolicyName: AWSControlTowerAdminPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeAvailabilityZones
+                Resource: '*'
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }]
+  ControlTowerCloudTrailRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: CloudTrail assumes this role to publish organization trail logs to CloudWatch Logs on behalf of AWS Control Tower.
+        mutable: review-required
+    Properties:
+      RoleName: AWSControlTowerCloudTrailRole
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSControlTowerCloudTrailRolePolicy
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }]
+  ControlTowerStackSetRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: CloudFormation assumes this role to deploy Control Tower stack sets into governed accounts.
+        must: [Scope stays limited to assuming AWSControlTowerExecution in member accounts.]
+        mutable: review-required
+    Properties:
+      RoleName: AWSControlTowerStackSetRole
+      Path: /service-role/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudformation.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AWSControlTowerStackSetRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: arn:aws:iam::*:role/AWSControlTowerExecution
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }]
+Outputs:
+  ControlTowerAdminRoleArn: { Value: !GetAtt ControlTowerAdminRole.Arn }
+  ControlTowerCloudTrailRoleArn: { Value: !GetAtt ControlTowerCloudTrailRole.Arn }
+  ControlTowerStackSetRoleArn: { Value: !GetAtt ControlTowerStackSetRole.Arn }

@@ -1,0 +1,27 @@
+# SAP_Retail IP address plan (Q5 "CIDR planning"). Single source of truth, checked in CI:
+# every VPC CIDR used by templates/06-network must appear here and no two ranges may overlap.
+# Rule: review the country's on-premises ranges before allocating; allocate from the country block.
+
+reserved:
+  - { cidr: <PRIVATE_CIDR>, use: Kenya on-premises network }
+  - { cidr: <PRIVATE_CIDR>,  use: Kenya on-premises data centre }
+  - { cidr: 169.254.0.0/16, use: VPN tunnel inside addresses }
+
+country_blocks:
+  Kenya:  <PRIVATE_CIDR>     # <PRIVATE_CIDR> - <PRIVATE_CIDR>
+  Uganda: <PRIVATE_CIDR>    # <PRIVATE_CIDR> - <PRIVATE_CIDR>
+  Shared: <PRIVATE_CIDR>    # network / platform accounts
+
+allocations:
+  # In <ORGANIZATION_ID> and managed by this package. No VPC is deployed yet.
+  - { account: "<NETWORK_ACCOUNT_ID>", name: Networking (shared), cidr: <PRIVATE_CIDR>, status: planned-no-vpc-deployment }
+  - { account: "<KENYA_NONPROD_ACCOUNT_ID>", name: Kenya Non-Production, cidr: <PRIVATE_CIDR>, status: planned-no-vpc-deployment }
+  # Reserved so a later Uganda vending cannot collide. No accounts exist yet.
+  - { account: TBD,            name: Uganda Production,    cidr: <PRIVATE_CIDR>, status: reserved }
+  - { account: TBD,            name: Uganda Non-Production, cidr: <PRIVATE_CIDR>, status: reserved }
+  # Ranges in use by accounts outside this organization. Recorded only so this plan does
+  # not hand out an overlapping range if any of them is ever brought in. Not managed here.
+  - { account: "<EXCLUDED_ACCOUNT_ID>", name: Kenya Production (external),     cidr: <PRIVATE_CIDR>,  status: external-not-managed, managedBy: retail-iac/templates/network.yaml }
+  - { account: "<EXCLUDED_ACCOUNT_ID>", name: Kenya Non-Production (external), cidr: <PRIVATE_CIDR>,  status: external-not-managed }
+  - { account: "<EXCLUDED_ACCOUNT_ID>", name: Data Platform (external),        cidr: <PRIVATE_CIDR>, status: external-not-managed, managedBy: data-platform-iac/templates/data-platform.yaml }
+  - { account: "<EXCLUDED_ACCOUNT_ID>", name: Network (external),              cidr: <PRIVATE_CIDR>, status: external-not-managed }

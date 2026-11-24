@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail fresh Control Tower landing zone manifest. Pin and preflight the selected Control Tower manifest schema before deployment.
+Parameters:
+  LogArchiveAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+  SecurityToolingAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+Resources:
+  LandingZone:
+    Type: AWS::ControlTower::LandingZone
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Version: '4.0'
+      Manifest:
+        accessManagement: { enabled: true }
+        securityRoles: { enabled: true, accountId: !Ref SecurityToolingAccountId }
+        backup: { enabled: false }
+        governedRegions: [eu-west-1]
+        config:
+          enabled: true
+          accountId: !Ref SecurityToolingAccountId
+        centralizedLogging:
+          enabled: true
+          accountId: !Ref LogArchiveAccountId
+          configurations:
+            loggingBucket: { retentionDays: 365 }
+            accessLoggingBucket: { retentionDays: 3650 }
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }]
+Outputs:
+  LandingZoneArn: { Value: !GetAtt LandingZone.Arn }

@@ -1,0 +1,7 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail Uganda structural boundary marker. No Control Tower baseline or account StackSet is deployed while Uganda has no approved accounts.
+Metadata:
+  Status: DEFERRED_EMPTY_OU
+Resources:
+  DeferredMarker:
+    Type: AWS::CloudFormation::WaitConditionHandle

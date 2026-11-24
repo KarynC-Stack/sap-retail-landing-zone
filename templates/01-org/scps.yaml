@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail opt-in SCPs. Attach only after approved policy simulation and Control Tower baseline success.
+Parameters:
+  RootId: { Type: String, AllowedPattern: '^r-[0-9a-z]{4,32}$' }
+  SecurityOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  KenyaOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  KenyaNonProductionOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  UgandaOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  UgandaNonProductionOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  SandboxOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+Resources:
+  RootProtection:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: root-protection
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref RootId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - { Sid: DenyLeaveOrganization, Effect: Deny, Action: organizations:LeaveOrganization, Resource: '*' }
+          - Sid: ProtectLandingZoneRoles
+            Effect: Deny
+            Action: [iam:DeleteRole, iam:UpdateAssumeRolePolicy, iam:DetachRolePolicy]
+            Resource: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-*', 'arn:aws:iam::*:role/KitstekSecurityAuditRole']
+            Condition: { ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec'] } }
+  SecurityServicesProtection:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: security-services-protection
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref RootId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyDisableSecurityServices
+            Effect: Deny
+            Action: [guardduty:DeleteDetector, guardduty:UpdateOrganizationConfiguration, securityhub:DisableSecurityHub, config:DeleteConfigurationRecorder, config:DeleteDeliveryChannel, cloudtrail:DeleteTrail, cloudtrail:StopLogging, access-analyzer:DeleteAnalyzer]
+            Resource: '*'
+            Condition: { ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec'] } }
+  SecurityLogProtection:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: log-archive-protection
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref SecurityOuId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - { Sid: DenyLogBucketDeletion, Effect: Deny, Action: [s3:DeleteBucket, s3:DeleteObject, s3:DeleteObjectVersion, s3:BypassGovernanceRetention, s3:PutBucketObjectLockConfiguration], Resource: ['arn:aws:s3:::sr-lz-log-archive-*', 'arn:aws:s3:::sr-lz-log-archive-*/*'] }
+  KenyaRegion:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: region-kenya
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref KenyaOuId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyOutsideIreland
+            Effect: Deny
+            NotAction: [iam:*, organizations:*, cloudfront:*, route53:*, sso:*, sts:*, support:*, health:*, pricing:*, aws-portal:*, budgets:*, ce:*, 's3:ListAllMyBuckets', 's3:GetAccountPublicAccessBlock', 's3:PutAccountPublicAccessBlock', 'ec2:DescribeRegions']
+            Resource: '*'
+            Condition: { StringNotEquals: { aws:RequestedRegion: eu-west-1 }, ArnLike: { aws:PrincipalArn: 'arn:aws:iam::*:role/*' } }
+  UgandaRegion:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: region-uganda-deferred
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref UgandaOuId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyOutsideApprovedOperatingRegion
+            Effect: Deny
+            NotAction: [iam:*, organizations:*, cloudfront:*, route53:*, sso:*, sts:*, support:*, health:*, pricing:*, aws-portal:*, budgets:*, ce:*, 's3:ListAllMyBuckets', 's3:GetAccountPublicAccessBlock', 's3:PutAccountPublicAccessBlock', 'ec2:DescribeRegions']
+            Resource: '*'
+            Condition: { StringNotEquals: { aws:RequestedRegion: eu-west-1 }, ArnLike: { aws:PrincipalArn: 'arn:aws:iam::*:role/*' } }
+  NonProductionLimits:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: nonproduction-instance-limits
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref KenyaNonProductionOuId, !Ref UgandaNonProductionOuId, !Ref SandboxOuId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - { Sid: DenyProductionClassInstances, Effect: Deny, Action: ec2:RunInstances, Resource: 'arn:aws:ec2:*:*:instance/*', Condition: { StringLike: { ec2:InstanceType: ['*.8xlarge', '*.12xlarge', '*.16xlarge', '*.24xlarge', '*.metal*', 'p*', 'g*', 'trn*'] } } }
+  SandboxIsolation:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: sandbox-isolation
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref SandboxOuId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - { Sid: DenyCorporateConnectivity, Effect: Deny, Action: [ec2:CreateTransitGatewayVpcAttachment, ec2:CreateVpcPeeringConnection, ec2:CreateVpnConnection, ram:AcceptResourceShareInvitation], Resource: '*' }

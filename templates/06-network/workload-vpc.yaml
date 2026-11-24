@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::LanguageExtensions
+Description: SAP_Retail workload account VPC - public/private subnets in 2 AZs, gateway + interface endpoints, flow logs and Route 53 Resolver query logs to Log Archive, optional Transit Gateway attachment and redundant Site-to-Site VPN with tunnel alarms (Q5, Q6; Kit D5).
+# One stack per workload account. Country-specific values (CIDR, VPN endpoint, TGW) are parameters
+# taken from config/network/<account>.json - the Kenya template is reused for Uganda unchanged (Q8).
+# CIDRs must come from config/network/cidr-plan.yaml (non-overlapping across Kenya, Uganda and on-prem; checked in CI).
+# The live Kenya Production VPC is managed by the SAP workload repo (retail-iac/templates/network.yaml) and
+# follows the same pattern; see docs/design-decisions.md.
+
+Parameters:
+  Country:
+    Type: String
+    AllowedValues: [Kenya, Uganda]
+  Environment:
+    Type: String
+    AllowedValues: [Production, Non-Production]
+  VpcCidr:
+    Type: String
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/(1[6-9]|2[0-4])$"
+  PublicSubnetACidr: { Type: String }
+  PublicSubnetBCidr: { Type: String }
+  PrivateSubnetACidr: { Type: String }
+  PrivateSubnetBCidr: { Type: String }
+  CreateNatGateway:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  CreateInterfaceEndpoints:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  LogArchiveDestinationArn:
+    Type: String
+    Description: S3 delivery prefix from the approved fresh Log Archive stack; no default prevents delivery to another organization.
+  TransitGatewayId:
+    Type: String
+    Default: ""
+    Description: Shared TGW from the Network account (blank = no attachment)
+  OnPremCidr:
+    Type: String
+    Default: ""
+    Description: On-premises range routed via VPN (blank = no VPN)
+  CustomerGatewayIp:
+    Type: String
+    Default: ""
+    Description: Public IP of the on-premises VPN device (blank = no VPN)
+  CustomerGatewayBgpAsn:
+    Type: Number
+    Default: 65000
+  AlarmTopicArn:
+    Type: String
+    Default: ""
+    Description: SNS topic for VPN tunnel alarms
+  ApnTagValue:
+    Type: String
+    Default: "<APN_ID>"
+
+Conditions:
+  HasNat: !Equals [!Ref CreateNatGateway, "true"]
+  HasInterfaceEndpoints: !Equals [!Ref CreateInterfaceEndpoints, "true"]
+  HasTgw: !Not [!Equals [!Ref TransitGatewayId, ""]]
+  HasVpn: !And [!Not [!Equals [!Ref CustomerGatewayIp, ""]], !Not [!Equals [!Ref OnPremCidr, ""]]]
+  HasVpnAlarm: !And [!Condition HasVpn, !Not [!Equals [!Ref AlarmTopicArn, ""]]]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-vpc" }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: Country, Value: !Ref Country }
+        - { Key: Environment, Value: !Ref Environment }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-igw" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-public-a" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-public-b" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  # Private subnets: SAP HANA, App, POS and AD servers. No route to the internet except via NAT egress.
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-private-a" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-private-b" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-public-rt" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicARta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PublicSubnetA, RouteTableId: !Ref PublicRouteTable }
+  PublicBRta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PublicSubnetB, RouteTableId: !Ref PublicRouteTable }
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-private-rt" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  PrivateARta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetA, RouteTableId: !Ref PrivateRouteTable }
+  PrivateBRta:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetB, RouteTableId: !Ref PrivateRouteTable }
+
+  NatEip:
+    Type: AWS::EC2::EIP
+    Condition: HasNat
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: HasNat
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-nat" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: HasNat
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  # ---------------- VPC endpoints (Q5: keep AWS traffic off the internet, reduce NAT cost) ----------------
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds: [!Ref PrivateRouteTable]
+  DynamoDbGatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      RouteTableIds: [!Ref PrivateRouteTable]
+
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: HasInterfaceEndpoints
+    Properties:
+      GroupDescription: HTTPS from inside the VPC to interface endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref VpcCidr, Description: VPC to endpoints }
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 127.0.0.1/32, Description: no egress }
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  Fn::ForEach::InterfaceEndpoints:
+    - Svc
+    - [ssm, ssmmessages, ec2messages, logs, sts, monitoring]
+    - "Endpoint${Svc}":
+        Type: AWS::EC2::VPCEndpoint
+        Condition: HasInterfaceEndpoints
+        Properties:
+          VpcId: !Ref Vpc
+          VpcEndpointType: Interface
+          ServiceName: !Sub "com.amazonaws.${AWS::Region}.${Svc}"
+          PrivateDnsEnabled: true
+          SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+          SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  # ---------------- Logging to Log Archive (Q6) ----------------
+  FlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: s3
+      LogDestination: !Ref LogArchiveDestinationArn
+      MaxAggregationInterval: 600
+      DestinationOptions:
+        FileFormat: parquet
+        HiveCompatiblePartitions: false
+        PerHourPartition: true
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  ResolverQueryLogConfig:
+    Type: AWS::Route53Resolver::ResolverQueryLoggingConfig
+    Properties:
+      Name: !Sub "sr-${Country}-${Environment}-dns-query-logs"
+      DestinationArn: !Ref LogArchiveDestinationArn
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  ResolverQueryLogAssociation:
+    Type: AWS::Route53Resolver::ResolverQueryLoggingConfigAssociation
+    Properties:
+      ResolverQueryLogConfigId: !Ref ResolverQueryLogConfig
+      ResourceId: !Ref Vpc
+
+  # ---------------- Transit Gateway (shared from the Network account) ----------------
+  TgwAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Condition: HasTgw
+    Properties:
+      TransitGatewayId: !Ref TransitGatewayId
+      VpcId: !Ref Vpc
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-tgw-attach" }
+        - { Key: Environment, Value: !Ref Environment }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  # ---------------- Site-to-Site VPN: two tunnels (redundant) on a VGW (Q5) ----------------
+  VpnGateway:
+    Type: AWS::EC2::VPNGateway
+    Condition: HasVpn
+    Properties:
+      Type: ipsec.1
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-vgw" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  VpnGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: HasVpn
+    Properties:
+      VpcId: !Ref Vpc
+      VpnGatewayId: !Ref VpnGateway
+  CustomerGateway:
+    Type: AWS::EC2::CustomerGateway
+    Condition: HasVpn
+    Properties:
+      Type: ipsec.1
+      IpAddress: !Ref CustomerGatewayIp
+      BgpAsn: !Ref CustomerGatewayBgpAsn
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-onprem-cgw" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  VpnConnection:
+    Type: AWS::EC2::VPNConnection
+    Condition: HasVpn
+    Properties:
+      Type: ipsec.1
+      CustomerGatewayId: !Ref CustomerGateway
+      VpnGatewayId: !Ref VpnGateway
+      StaticRoutesOnly: true
+      Tags:
+        - { Key: Name, Value: !Sub "sr-${Country}-${Environment}-vpn" }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  VpnStaticRoute:
+    Type: AWS::EC2::VPNConnectionRoute
+    Condition: HasVpn
+    Properties:
+      VpnConnectionId: !Ref VpnConnection
+      DestinationCidrBlock: !Ref OnPremCidr
+  VpnRoutePropagation:
+    Type: AWS::EC2::VPNGatewayRoutePropagation
+    Condition: HasVpn
+    DependsOn: VpnGatewayAttachment
+    Properties:
+      VpnGatewayId: !Ref VpnGateway
+      RouteTableIds: [!Ref PrivateRouteTable]
+
+  # Tunnel monitoring: TunnelState is 1 when up, 0 when down. Minimum < 1 = at least one tunnel down.
+  VpnTunnelAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasVpnAlarm
+    Properties:
+      AlarmName: !Sub "sr-${Country}-${Environment}-vpn-tunnel-down"
+      AlarmDescription: At least one Site-to-Site VPN tunnel is down (redundancy lost).
+      Namespace: AWS/VPN
+      MetricName: TunnelState
+      Dimensions:
+        - { Name: VpnId, Value: !Ref VpnConnection }
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlarmTopicArn]
+      OKActions: [!Ref AlarmTopicArn]
+
+Outputs:
+  VpcId: { Value: !Ref Vpc }
+  PrivateSubnetIds: { Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]] }
+  PublicSubnetIds: { Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]] }

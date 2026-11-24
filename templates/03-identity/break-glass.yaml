@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: SAP_Retail break-glass access for the management account with immediate alerting (Q3, Q4; Kit D3). Stack sr-lz-break-glass, management account, deploy in eu-west-1 AND us-east-1 (alerts only).
+# Design (Q3 "dual authorization, hardware MFA, immediate CloudWatch alert"):
+#  - IAM user sr-breakglass: no access keys, console only. Every action is denied unless MFA is present.
+#    Password and hardware MFA key are held by two different people (dual authorization) - runbook.
+#  - Role BreakGlassAdministrator: AdministratorAccess, 1-hour sessions, assumable only by sr-breakglass with MFA.
+#  - EventBridge rules alert the Kitstek security team on sign-in of the user and on role assumption.
+#    Console sign-in events are delivered in us-east-1, so this template is also deployed there with
+#    CreateIdentity=false.
+# Replaces the console-built lz-break-glass stack (role BreakGlassAdmin), which is deleted after cutover.
+
+Parameters:
+  CreateIdentity:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: true in eu-west-1 (creates user + role); false in us-east-1 (alerting only)
+  SecurityAlertEmail:
+    Type: String
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    Description: Kitstek security team distribution list
+  ApnTagValue:
+    Type: String
+    Default: "<APN_ID>"
+
+Conditions:
+  IsIdentityRegion: !Equals [!Ref CreateIdentity, "true"]
+
+Resources:
+  BreakGlassUser:
+    Type: AWS::IAM::User
+    Condition: IsIdentityRegion
+    Properties:
+      UserName: sr-breakglass
+      Path: /breakglass/
+      Policies:
+        - PolicyName: require-mfa-for-everything
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowSelfMfaManagement
+                Effect: Allow
+                Action:
+                  - iam:GetUser
+                  - iam:ListMFADevices
+                  - iam:ChangePassword
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:user/breakglass/sr-breakglass"
+              - Sid: AllowAssumeBreakGlassRoleWithMfa
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/BreakGlassAdministrator"
+                Condition:
+                  Bool: { aws:MultiFactorAuthPresent: "true" }
+              - Sid: DenyEverythingWithoutMfa
+                Effect: Deny
+                NotAction:
+                  - iam:GetUser
+                  - iam:ListMFADevices
+                  - iam:ChangePassword
+                  - sts:GetSessionToken
+                Resource: "*"
+                Condition:
+                  BoolIfExists: { aws:MultiFactorAuthPresent: "false" }
+              - Sid: DenyAccessKeys
+                Effect: Deny
+                Action: [iam:CreateAccessKey, iam:UpdateAccessKey]
+                Resource: "*"
+      Tags:
+        - { Key: Purpose, Value: break-glass }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  BreakGlassRole:
+    Type: AWS::IAM::Role
+    Condition: IsIdentityRegion
+    Properties:
+      RoleName: BreakGlassAdministrator
+      Description: Emergency administrator. Use only under docs/runbooks/break-glass.md.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt BreakGlassUser.Arn
+            Action: sts:AssumeRole
+            Condition:
+              Bool: { aws:MultiFactorAuthPresent: "true" }
+              NumericLessThan: { aws:MultiFactorAuthAge: "900" }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Tags:
+        - { Key: Purpose, Value: break-glass }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  SecurityAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: sr-lz-breakglass-alerts
+      KmsMasterKeyId: alias/aws/sns
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref SecurityAlertEmail
+      Tags:
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+  SecurityAlertsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref SecurityAlertsTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowEventBridge
+            Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref SecurityAlertsTopic
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+
+  # Immediate alert: break-glass role assumed, break-glass user signed in, or root signed in.
+  BreakGlassUsedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: sr-lz-breakglass-used
+      Description: Alerts the Kitstek security team when break-glass or root credentials are used.
+      State: ENABLED
+      EventPattern:
+        source: [aws.sts, aws.signin]
+        detail-type: [AWS API Call via CloudTrail, AWS Console Sign In via CloudTrail]
+        detail:
+          "$or":
+            - eventName: [AssumeRole]
+              requestParameters:
+                roleArn: [!Sub "arn:aws:iam::${AWS::AccountId}:role/BreakGlassAdministrator"]
+            - eventName: [ConsoleLogin]
+              userIdentity:
+                userName: [sr-breakglass]
+            - eventName: [ConsoleLogin]
+              userIdentity:
+                type: [Root]
+      Targets:
+        - Id: sns
+          Arn: !Ref SecurityAlertsTopic
+
+Outputs:
+  BreakGlassRoleArn:
+    Condition: IsIdentityRegion
+    Value: !GetAtt BreakGlassRole.Arn
+  AlertsTopicArn:
+    Value: !Ref SecurityAlertsTopic

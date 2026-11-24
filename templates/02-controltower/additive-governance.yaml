@@ -1,0 +1,11 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail additive Control Tower controls for one approved, baseline-succeeded OU. Uganda and Sandbox remain DEFERRED_EMPTY_OU.
+Parameters:
+  TargetOuArn: { Type: String, AllowedPattern: '^arn:aws:organizations::\d{12}:ou/o-[a-z0-9]+/ou-[a-z0-9-]+$' }
+  ControlIdentifier: { Type: String, AllowedPattern: '^arn:aws:controlcatalog:::control/.+$' }
+Resources:
+  Control:
+    Type: AWS::ControlTower::EnabledControl
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { ControlIdentifier: !Ref ControlIdentifier, TargetIdentifier: !Ref TargetOuArn }

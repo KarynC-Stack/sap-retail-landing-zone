@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail service-managed StackSets for explicitly approved, non-empty OUs. No Root target, no auto-deployment, and no Uganda or Sandbox targets.
+Parameters:
+  TemplateBaseUrl: { Type: String }
+  OrgId: { Type: String, AllowedPattern: '^o-[a-z0-9]{10,32}$' }
+  SourceLoggingBucketName:
+    Type: String
+    Description: Control Tower managed log bucket replicated into the write-once Object Lock archive.
+  SecurityOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  InfrastructureOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  WorkloadsOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  SandboxOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  KenyaNonProductionOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  LogArchiveAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+  SecurityToolingAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+  ManagementAccountId: { Type: String, Default: '<MANAGEMENT_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  NetworkAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+  KenyaNonProductionAccountId: { Type: String, AllowedPattern: '^\d{12}$' }
+  HomeRegion: { Type: String, Default: eu-west-1 }
+  SecurityAlertEmail: { Type: String, AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
+  # Each StackSet is gated so it can be rolled out one at a time. A stack-level
+  # rollback deletes every StackSet in this stack, and the member templates use
+  # DeletionPolicy Retain, so a single failure otherwise leaves orphaned
+  # fixed-name resources that block the next attempt.
+  EnableAuditRoleStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EnableLogArchiveStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EnableSecurityToolingStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EnableNetworkHubStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EnableSchedulerStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+Conditions:
+  WithAuditRole: !Equals [!Ref EnableAuditRoleStackSet, 'true']
+  WithLogArchive: !Equals [!Ref EnableLogArchiveStackSet, 'true']
+  WithSecurityTooling: !Equals [!Ref EnableSecurityToolingStackSet, 'true']
+  WithNetworkHub: !Equals [!Ref EnableNetworkHubStackSet, 'true']
+  WithScheduler: !Equals [!Ref EnableSchedulerStackSet, 'true']
+Resources:
+  AuditRoleStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithAuditRole
+    Properties:
+      StackSetName: sr-lz-security-audit-role
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      Capabilities: [CAPABILITY_NAMED_IAM]
+      OperationPreferences: { MaxConcurrentCount: 1, FailureToleranceCount: 0, RegionConcurrencyType: SEQUENTIAL }
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/04-security/member/kitstek-security-audit-role.yaml'
+      Parameters: [{ ParameterKey: SecurityToolingAccountId, ParameterValue: !Ref SecurityToolingAccountId }, { ParameterKey: ManagementAccountId, ParameterValue: !Ref ManagementAccountId }]
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref LogArchiveAccountId, !Ref SecurityToolingAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  LogArchiveStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithLogArchive
+    Properties:
+      StackSetName: sr-lz-log-archive
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      Capabilities: [CAPABILITY_NAMED_IAM]
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/05-logging/log-archive.yaml'
+      Parameters: [{ ParameterKey: OrgId, ParameterValue: !Ref OrgId }, { ParameterKey: SourceLoggingBucketName, ParameterValue: !Ref SourceLoggingBucketName }]
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref LogArchiveAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  SecurityToolingStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithSecurityTooling
+    Properties:
+      StackSetName: sr-lz-security-tooling
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/04-security/security-tooling.yaml'
+      Parameters:
+        - { ParameterKey: SecurityAlertEmail, ParameterValue: !Ref SecurityAlertEmail }
+        - { ParameterKey: SecurityOuId, ParameterValue: !Ref SecurityOuId }
+        - { ParameterKey: InfrastructureOuId, ParameterValue: !Ref InfrastructureOuId }
+        - { ParameterKey: WorkloadsOuId, ParameterValue: !Ref WorkloadsOuId }
+        - { ParameterKey: SandboxOuId, ParameterValue: !Ref SandboxOuId }
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref SecurityToolingAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  NetworkHubStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithNetworkHub
+    Properties:
+      StackSetName: sr-lz-network-hub
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/06-network/network-hub.yaml'
+      Parameters: [{ ParameterKey: OrgArn, ParameterValue: !Sub 'arn:aws:organizations::${ManagementAccountId}:organization/${OrgId}' }]
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  SchedulerStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithScheduler
+    Properties:
+      StackSetName: sr-lz-instance-scheduler
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      Capabilities: [CAPABILITY_NAMED_IAM]
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/07-cost/member/instance-scheduler.yaml'
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref KenyaNonProductionOuId], Accounts: [!Ref KenyaNonProductionAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]

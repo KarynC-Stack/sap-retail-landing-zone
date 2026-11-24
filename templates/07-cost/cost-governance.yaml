@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail cost governance for active, approved accounts only. Uganda and Data Platform are excluded until separate approval.
+Parameters:
+  CostAlertEmail: { Type: String, AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
+  ActiveAccountIds: { Type: CommaDelimitedList }
+  OrganizationBudgetUsd: { Type: Number, Default: 1000 }
+  AnomalyThresholdUsd: { Type: Number, Default: 50 }
+  # AWS allows exactly one per-service (DIMENSIONAL) anomaly monitor per account and creates
+  # "Default-Services-Monitor" automatically. Creating a second returns
+  # "Limit exceeded on dimensional spend monitor creation". Pass its ARN to reuse it; leave empty
+  # to have this stack create one in an account that does not have it yet.
+  ExistingServiceMonitorArn: { Type: String, Default: '' }
+Conditions:
+  CreateServiceMonitor: !Equals [!Ref ExistingServiceMonitorArn, '']
+Resources:
+  OrganizationBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget: { BudgetName: sr-lz-organization-monthly, BudgetType: COST, TimeUnit: MONTHLY, BudgetLimit: { Amount: !Ref OrganizationBudgetUsd, Unit: USD }, CostFilters: { LinkedAccount: !Ref ActiveAccountIds } }
+      NotificationsWithSubscribers: [{ Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }, Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref CostAlertEmail }] }]
+  ServiceAnomalyMonitor:
+    Type: AWS::CE::AnomalyMonitor
+    Condition: CreateServiceMonitor
+    Properties: { MonitorName: sr-lz-services, MonitorType: DIMENSIONAL, MonitorDimension: SERVICE }
+  AccountAnomalyMonitor:
+    Type: AWS::CE::AnomalyMonitor
+    Properties:
+      MonitorName: sr-lz-approved-accounts
+      MonitorType: CUSTOM
+      MonitorSpecification: !Join ['', ['{"Dimensions":{"Key":"LINKED_ACCOUNT","Values":["', !Join ['","', !Ref ActiveAccountIds], '"]}}']]
+  AnomalySubscription:
+    Type: AWS::CE::AnomalySubscription
+    Properties:
+      SubscriptionName: sr-lz-anomaly-alerts
+      Frequency: DAILY
+      MonitorArnList: [!If [CreateServiceMonitor, !Ref ServiceAnomalyMonitor, !Ref ExistingServiceMonitorArn], !Ref AccountAnomalyMonitor]
+      Subscribers: [{ Type: EMAIL, Address: !Ref CostAlertEmail }]
+      ThresholdExpression: !Sub '{"Dimensions":{"Key":"ANOMALY_TOTAL_IMPACT_ABSOLUTE","MatchOptions":["GREATER_THAN_OR_EQUAL"],"Values":["${AnomalyThresholdUsd}"]}}'

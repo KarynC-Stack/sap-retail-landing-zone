@@ -1,0 +1,5 @@
+[
+  { "ParameterKey": "GitHubOwner", "ParameterValue": "<GITHUB_OWNER>" },
+  { "ParameterKey": "GitHubRepo", "ParameterValue": "sap-retail-lz-iac" },
+  { "ParameterKey": "CreateOIDCProvider", "ParameterValue": "true" }
+]

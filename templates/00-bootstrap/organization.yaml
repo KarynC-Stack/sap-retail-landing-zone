@@ -1,0 +1,13 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail opt-in fresh organization bootstrap; deploy only from verified management account <MANAGEMENT_ACCOUNT_ID>.
+Resources:
+  Organization:
+    Type: AWS::Organizations::Organization
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FeatureSet: ALL
+Outputs:
+  OrganizationId: { Value: !Ref Organization }
+  RootId: { Value: !GetAtt Organization.RootId }
+  ManagementAccountId: { Value: !Ref AWS::AccountId }

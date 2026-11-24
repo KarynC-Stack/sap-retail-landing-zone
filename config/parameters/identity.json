@@ -1,0 +1,6 @@
+[
+  { "ParameterKey": "InstanceArn", "ParameterValue": "arn:aws:sso:::instance/<IDENTITY_CENTER_INSTANCE_ID>" },
+  { "ParameterKey": "EnableAssignments", "ParameterValue": "false" },
+  { "ParameterKey": "EnableAdminAssignments", "ParameterValue": "true" },
+  { "ParameterKey": "AdminGroupId", "ParameterValue": "00000000-0000-0000-0000-000000000000" }
+]

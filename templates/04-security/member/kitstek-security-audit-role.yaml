@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: KitstekSecurityAuditRole - read-only cross-account audit path from the Security Tooling account (Q2, Q4; Kit D2). Deployed to every member account by StackSet sr-lz-kitstek-security-audit-role.
+# Only principals in the Security Tooling account that hold the SR-SecurityAudit permission set
+# (or Control Tower's audit roles) can assume this role. Protected from modification by SCP
+# sr-root-protection (statement ProtectLandingZoneRoles), which names this role explicitly.
+
+Parameters:
+  SecurityToolingAccountId:
+    Type: String
+    AllowedPattern: '^\d{12}$'
+  ManagementAccountId:
+    Type: String
+  ApnTagValue:
+    Type: String
+    Default: "<APN_ID>"
+
+Resources:
+  KitstekSecurityAuditRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: KitstekSecurityAuditRole
+      Description: Read-only security audit access from the SAP_Retail Security Tooling account.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${SecurityToolingAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:PrincipalArn:
+                  - !Sub "arn:${AWS::Partition}:iam::${SecurityToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_SR-SecurityAudit_*"
+                  - !Sub "arn:${AWS::Partition}:iam::${SecurityToolingAccountId}:role/aws-controltower-AuditReadOnlyRole"
+          # Read-only verify pipeline (verify/verify.ps1 in CI) from the management account.
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${ManagementAccountId}:role/sr-lz-github-validate"
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess"
+      Tags:
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+
+Outputs:
+  RoleArn: { Value: !GetAtt KitstekSecurityAuditRole.Arn }

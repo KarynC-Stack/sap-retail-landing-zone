@@ -1,0 +1,5 @@
+[
+  { "ParameterKey": "CostAlertEmail", "ParameterValue": "security-alerts@example.com" },
+  { "ParameterKey": "ActiveAccountIds", "ParameterValue": "<LOG_ARCHIVE_ACCOUNT_ID>,<SECURITY_TOOLING_ACCOUNT_ID>,<NETWORK_ACCOUNT_ID>,<KENYA_NONPROD_ACCOUNT_ID>" },
+  { "ParameterKey": "ExistingServiceMonitorArn", "ParameterValue": "arn:aws:ce::<MANAGEMENT_ACCOUNT_ID>:anomalymonitor/00000000-0000-0000-0000-000000000000" }
+]

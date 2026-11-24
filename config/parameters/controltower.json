@@ -1,0 +1,4 @@
+[
+  { "ParameterKey": "LogArchiveAccountId", "ParameterValue": "<LOG_ARCHIVE_ACCOUNT_ID>" },
+  { "ParameterKey": "SecurityToolingAccountId", "ParameterValue": "<SECURITY_TOOLING_ACCOUNT_ID>" }
+]

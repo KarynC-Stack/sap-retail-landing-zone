@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail Security Tooling baseline (Security Hub central configuration, Access Analyzer, findings alerts). Deployed as a StackSet instance in the Security Tooling account, which must already be the Security Hub delegated administrator.
+Parameters:
+  SecurityAlertEmail: { Type: String, AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
+  # The standards policy is associated with the four top-level OUs, not the organization root.
+  # A ROOT association also targets the management account, which has no Security Hub
+  # subscription and no AWS Config recorder. With the finding aggregator on ALL_REGIONS it stayed
+  # PENDING for ~50 minutes and failed with "4 organizational units or accounts under this root
+  # failed" (design decision 23). Child OUs (Kenya, Uganda and their Production/Non-Production
+  # OUs) inherit from Workloads.
+  SecurityOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  InfrastructureOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  WorkloadsOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  SandboxOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+Resources:
+  # No AWS::SecurityHub::Hub here on purpose. Registering this account as the
+  # Security Hub delegated administrator already subscribes it to Security Hub,
+  # so declaring Hub returns "Account is already subscribed to Security Hub".
+  FindingAggregator:
+    Type: AWS::SecurityHub::FindingAggregator
+    # NO_REGIONS: the organization is Ireland-only (eu-west-1). ALL_REGIONS linked 17 Regions, and a
+    # central configuration policy must then be enabled in every linked Region of every target
+    # account, which failed for the management account ("Security Hub is not enabled ... in Regions
+    # ap-south-1, eu-west-3 and 15 other(s)").
+    Properties: { RegionLinkingMode: NO_REGIONS }
+  OrganizationConfiguration:
+    Type: AWS::SecurityHub::OrganizationConfiguration
+    DependsOn: FindingAggregator
+    Properties: { AutoEnable: false, AutoEnableStandards: NONE, ConfigurationType: CENTRAL }
+  StandardsPolicy:
+    Type: AWS::SecurityHub::ConfigurationPolicy
+    DependsOn: OrganizationConfiguration
+    Properties:
+      Name: sr-lz-fsbp-cis
+      ConfigurationPolicy:
+        SecurityHub:
+          ServiceEnabled: true
+          EnabledStandardIdentifiers: [!Sub 'arn:${AWS::Partition}:securityhub:${AWS::Region}::standards/aws-foundational-security-best-practices/v/1.0.0', !Sub 'arn:${AWS::Partition}:securityhub:${AWS::Region}::standards/cis-aws-foundations-benchmark/v/3.0.0']
+          SecurityControlsConfiguration: { DisabledSecurityControlIdentifiers: [] }
+  StandardsPolicySecurityOu:
+    Type: AWS::SecurityHub::PolicyAssociation
+    Properties: { ConfigurationPolicyId: !GetAtt StandardsPolicy.Id, TargetType: ORGANIZATIONAL_UNIT, TargetId: !Ref SecurityOuId }
+  StandardsPolicyInfrastructureOu:
+    Type: AWS::SecurityHub::PolicyAssociation
+    DependsOn: StandardsPolicySecurityOu
+    Properties: { ConfigurationPolicyId: !GetAtt StandardsPolicy.Id, TargetType: ORGANIZATIONAL_UNIT, TargetId: !Ref InfrastructureOuId }
+  StandardsPolicyWorkloadsOu:
+    Type: AWS::SecurityHub::PolicyAssociation
+    DependsOn: StandardsPolicyInfrastructureOu
+    Properties: { ConfigurationPolicyId: !GetAtt StandardsPolicy.Id, TargetType: ORGANIZATIONAL_UNIT, TargetId: !Ref WorkloadsOuId }
+  StandardsPolicySandboxOu:
+    Type: AWS::SecurityHub::PolicyAssociation
+    DependsOn: StandardsPolicyWorkloadsOu
+    Properties: { ConfigurationPolicyId: !GetAtt StandardsPolicy.Id, TargetType: ORGANIZATIONAL_UNIT, TargetId: !Ref SandboxOuId }
+  OrgExternalAccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Properties: { AnalyzerName: sr-lz-org-external-access, Type: ORGANIZATION }
+  OrgUnusedAccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Properties: { AnalyzerName: sr-lz-org-unused-access, Type: ORGANIZATION_UNUSED_ACCESS, AnalyzerConfiguration: { UnusedAccessConfiguration: { UnusedAccessAge: 90 } } }
+  FindingsTopic:
+    Type: AWS::SNS::Topic
+    Properties: { TopicName: sr-lz-security-findings, Subscription: [{ Protocol: email, Endpoint: !Ref SecurityAlertEmail }] }
+  FindingsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: sr-lz-securityhub-critical-high
+      State: ENABLED
+      EventPattern:
+        source: [aws.securityhub]
+        detail-type: ['Security Hub Findings - Imported']
+        detail: { findings: { Severity: { Label: [CRITICAL, HIGH] } } }
+      Targets: [{ Id: sns, Arn: !Ref FindingsTopic }]
+  # EventBridge can only publish to an SNS topic that allows it. Without this policy the
+  # rule matches but nothing is ever delivered.
+  FindingsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref FindingsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgePublish
+            Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref FindingsTopic
+            Condition: { ArnEquals: { 'aws:SourceArn': !GetAtt FindingsRule.Arn } }
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
+            Resource: !Ref FindingsTopic
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }

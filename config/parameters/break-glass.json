@@ -1,0 +1,4 @@
+[
+  { "ParameterKey": "CreateIdentity", "ParameterValue": "true" },
+  { "ParameterKey": "SecurityAlertEmail", "ParameterValue": "security-alerts@example.com" }
+]

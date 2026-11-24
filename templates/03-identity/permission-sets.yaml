@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail IAM Identity Center permission sets. The Identity Center instance and identity-store subjects must exist before this opt-in stack is deployed.
+Parameters:
+  InstanceArn: { Type: String, AllowedPattern: '^arn:aws:sso:::instance/ssoins-[a-z0-9]+$' }
+  EnableAssignments: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  AdminGroupId: { Type: String, Default: '00000000-0000-0000-0000-000000000000', AllowedPattern: '^([0-9a-f]{10}-|)[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$' }
+  EnableAdminAssignments:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Grants the admin group AdministratorAccess on every listed account. Standing admin; see design decision 17.
+  AdminTargetManagementAccountId: { Type: String, Default: '<MANAGEMENT_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  AdminTargetLogArchiveAccountId: { Type: String, Default: '<LOG_ARCHIVE_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  AdminTargetSecurityToolingAccountId: { Type: String, Default: '<SECURITY_TOOLING_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  AdminTargetNetworkingAccountId: { Type: String, Default: '<NETWORK_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  AdminTargetKenyaNonProductionAccountId: { Type: String, Default: '<KENYA_NONPROD_ACCOUNT_ID>', AllowedPattern: '^\d{12}$' }
+  ReadOnlyGroupId: { Type: String, Default: '00000000-0000-0000-0000-000000000000', AllowedPattern: '^([0-9a-f]{10}-|)[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$' }
+  SecurityAuditGroupId: { Type: String, Default: '00000000-0000-0000-0000-000000000000', AllowedPattern: '^([0-9a-f]{10}-|)[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$' }
+  ApprovedAccountId: { Type: String, Default: '000000000000', AllowedPattern: '^\d{12}$' }
+Conditions:
+  Assign: !Equals [!Ref EnableAssignments, 'true']
+  AssignAdmin: !Equals [!Ref EnableAdminAssignments, 'true']
+Resources:
+  AdminPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties: { InstanceArn: !Ref InstanceArn, Name: SR-Admin, Description: Break-glass only; no standing assignment, SessionDuration: PT1H, ManagedPolicies: ['arn:aws:iam::aws:policy/AdministratorAccess'] }
+  PowerUserPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties: { InstanceArn: !Ref InstanceArn, Name: SR-PowerUser, SessionDuration: PT1H, ManagedPolicies: ['arn:aws:iam::aws:policy/PowerUserAccess'] }
+  ReadOnlyPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties: { InstanceArn: !Ref InstanceArn, Name: SR-ReadOnly, SessionDuration: PT1H, ManagedPolicies: ['arn:aws:iam::aws:policy/ReadOnlyAccess'] }
+  SecurityAuditPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties: { InstanceArn: !Ref InstanceArn, Name: SR-SecurityAudit, SessionDuration: PT1H, ManagedPolicies: ['arn:aws:iam::aws:policy/SecurityAudit', 'arn:aws:iam::aws:policy/job-function/ViewOnlyAccess'] }
+  NetworkAdminPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties: { InstanceArn: !Ref InstanceArn, Name: SR-NetworkAdmin, SessionDuration: PT1H, ManagedPolicies: ['arn:aws:iam::aws:policy/job-function/NetworkAdministrator'] }
+# Standing AdministratorAccess for the admin group on every account in the organization.
+# Explicitly requested by the customer. Each new account needs a matching assignment added here.
+  AdminAssignmentManagement:
+    Type: AWS::SSO::Assignment
+    Condition: AssignAdmin
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref AdminGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref AdminTargetManagementAccountId }
+  AdminAssignmentLogArchive:
+    Type: AWS::SSO::Assignment
+    Condition: AssignAdmin
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref AdminGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref AdminTargetLogArchiveAccountId }
+  AdminAssignmentSecurityTooling:
+    Type: AWS::SSO::Assignment
+    Condition: AssignAdmin
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref AdminGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref AdminTargetSecurityToolingAccountId }
+  AdminAssignmentNetworking:
+    Type: AWS::SSO::Assignment
+    Condition: AssignAdmin
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref AdminGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref AdminTargetNetworkingAccountId }
+  AdminAssignmentKenyaNonProduction:
+    Type: AWS::SSO::Assignment
+    Condition: AssignAdmin
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref AdminGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref AdminTargetKenyaNonProductionAccountId }
+# Assignments are opt-in and must use an approved group and a joined/baseline-verified account ID.
+  ReadOnlyAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: Assign
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt ReadOnlyPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref ReadOnlyGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref ApprovedAccountId }
+  SecurityAuditAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: Assign
+    Properties: { InstanceArn: !Ref InstanceArn, PermissionSetArn: !GetAtt SecurityAuditPermissionSet.PermissionSetArn, PrincipalType: GROUP, PrincipalId: !Ref SecurityAuditGroupId, TargetType: AWS_ACCOUNT, TargetId: !Ref ApprovedAccountId }
+# Deploy this stack per approved account. Uganda and Data Platform remain excluded until their approval gates succeed.

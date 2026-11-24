@@ -1,0 +1,133 @@
+# SAP_Retail fresh AWS Organization source of truth.
+# This package targets a new organization created only from management account <MANAGEMENT_ACCOUNT_ID>.
+# Identifiers discovered during bootstrap are supplied as parameters; no previous organization identifiers are valid.
+organization:
+  managementAccountId: "<MANAGEMENT_ACCOUNT_ID>"
+  managementAccountEmail: aws.dev-org@example.com
+  organizationId: <ORGANIZATION_ID>
+  rootId: <ROOT_ID>
+  featureSet: ALL
+  homeRegion: eu-west-1
+  ugandaOperatingRegion: eu-west-1 # Ireland; business/residency approval required before Uganda account vending.
+  identityCenter:
+    state: PROVISIONED_BY_CONTROL_TOWER # manifest accessManagement.enabled = true
+    instanceArn: arn:aws:sso:::instance/<IDENTITY_CENTER_INSTANCE_ID>
+    identityStoreId: <IDENTITY_STORE_ID>
+    primaryRegion: eu-west-1
+  controlTower:
+    landingZoneArn: arn:aws:controltower:eu-west-1:<MANAGEMENT_ACCOUNT_ID>:landingzone/<LANDING_ZONE_ID>
+    version: '4.0'
+    state: ACTIVE_IN_SYNC
+    loggingBuckets: CONTROL_TOWER_MANAGED
+partner:
+  name: Kitsilano Technologies (Kitstek)
+  apnTagKey: aws-apn-id
+  apnTagValue: <APN_ID>
+requiredTags:
+  ManagedBy: Kitstek
+  Client: SAP_Retail
+  Country: [Kenya, Uganda, Shared]
+  Environment: [Production, Non-Production, Shared]
+  aws-apn-id: <APN_ID>
+organizationalUnits:
+  - { name: Security, parent: Root }
+  - { name: Infrastructure, parent: Root }
+  - { name: Workloads, parent: Root }
+  - { name: Kenya, parent: Workloads }
+  - { name: Production, parent: Workloads/Kenya }
+  - { name: Non-Production, parent: Workloads/Kenya }
+  - { name: Uganda, parent: Workloads }
+  - { name: Production, parent: Workloads/Uganda }
+  - { name: Non-Production, parent: Workloads/Uganda }
+  - { name: Sandbox, parent: Root }
+accounts:
+  - id: "<MANAGEMENT_ACCOUNT_ID>"
+    name: Management
+    email: aws.dev-org@example.com
+    state: EXISTING_MANAGEMENT_ACCOUNT
+    ou: Root
+  - id: "<LOG_ARCHIVE_ACCOUNT_ID>"
+    logicalId: LogArchiveDevAccount
+    name: Log Archive
+    email: dev.loging@example.com
+    state: ACTIVE_IN_THIS_ORGANIZATION
+    ou: Security
+    ouId: <SECURITY_OU_ID>
+    emailLocked: true
+    provisioning: templates/01-org/organization.yaml # adopted by IMPORT; created out-of-band
+  - id: "<SECURITY_TOOLING_ACCOUNT_ID>"
+    logicalId: SecurityToolingDevAccount
+    name: Security Tooling
+    email: dev.security@example.com
+    state: ACTIVE_IN_THIS_ORGANIZATION
+    ou: Security
+    ouId: <SECURITY_OU_ID>
+    emailLocked: true
+    provisioning: templates/01-org/organization.yaml
+  - id: "<NETWORK_ACCOUNT_ID>"
+    logicalId: NetworkingDevAccount
+    name: Networking
+    email: dev.networking@example.com
+    state: ACTIVE_IN_THIS_ORGANIZATION
+    ou: Infrastructure
+    ouId: <INFRASTRUCTURE_OU_ID>
+    emailLocked: true
+    provisioning: templates/01-org/organization.yaml
+  - id: "<KENYA_NONPROD_ACCOUNT_ID>"
+    logicalId: KenyaNonProductionDevAccount
+    name: Kenya Non-Production
+    email: dev.nonprod@example.com
+    state: ACTIVE_IN_THIS_ORGANIZATION
+    ou: Workloads/Kenya/Non-Production
+    ouId: <KENYA_NONPRODUCTION_OU_ID>
+    emailLocked: true
+    provisioning: templates/01-org/organization.yaml
+# Accounts below are NOT members of <ORGANIZATION_ID> and are NOT managed by this package.
+# They are recorded for reference only. The customer decided against migrating them:
+# fresh accounts were created instead. No template, parameter or script in this package
+# may target these identifiers. Any future migration needs its own approval and runbook.
+externalAccountsNotManagedHere:
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Log Archive
+    email: retail.logging@example.com
+    state: NOT_IN_THIS_ORGANIZATION
+    emailLocked: true
+    prohibited: [invitation, enrollment, ou-move, migration, removal, modification]
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Security Tooling
+    email: retail.security@example.com
+    state: NOT_IN_THIS_ORGANIZATION
+    emailLocked: true
+    prohibited: [invitation, enrollment, ou-move, migration, removal, modification]
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Network
+    email: retail.networking@example.com
+    state: NOT_IN_THIS_ORGANIZATION
+    emailLocked: true
+    prohibited: [invitation, enrollment, ou-move, migration, removal, modification]
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Kenya Non-Production
+    email: retail.kenya.nonprod@example.com
+    state: NOT_IN_THIS_ORGANIZATION
+    emailLocked: true
+    prohibited: [invitation, enrollment, ou-move, migration, removal, modification]
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Kenya Production
+    email: DISCOVER_BEFORE_INVITATION
+    state: NOT_IN_THIS_ORGANIZATION
+    emailLocked: true
+    prohibited: [invitation, enrollment, ou-move, migration, removal, modification]
+  - id: "<EXCLUDED_ACCOUNT_ID>"
+    name: Data Platform
+    email: aws.hudata@example.com
+    state: NOT_IN_THIS_ORGANIZATION_LIVE_PRODUCTION
+    emailLocked: true
+    prohibited: [workload-deploy, vpc-change, invitation, enrollment, ou-move, migration, removal, modification]
+deferred:
+  ugandaAccounts: NOT_CREATED
+  sandboxAccountStacks: NOT_CREATED
+network:
+  sharedServicesAccount: NetworkingDevAccount
+  workloadVpcOwnership: WORKLOAD_ACCOUNT
+  dataPlatformExcluded: true
+  provisioningBoundary: ACCOUNT_CREATION_ONLY_NO_VPC_OR_SHARED_NETWORK_DEPLOYMENT

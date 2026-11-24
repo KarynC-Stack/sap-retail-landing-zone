@@ -1,0 +1,6 @@
+[
+  { "ParameterKey": "BaselineIdentifier", "ParameterValue": "arn:aws:controltower:eu-west-1::baseline/17BSJV3IGJ2QSGA2" },
+  { "ParameterKey": "BaselineVersion", "ParameterValue": "5.0" },
+  { "ParameterKey": "TargetOuArn", "ParameterValue": "arn:aws:organizations::<MANAGEMENT_ACCOUNT_ID>:ou/<ORGANIZATION_ID>/<KENYA_OU_ID>" },
+  { "ParameterKey": "IdentityCenterEnabledBaselineArn", "ParameterValue": "arn:aws:controltower:eu-west-1:<MANAGEMENT_ACCOUNT_ID>:enabledbaseline/XAJQF4ZFP7I62DONN" }
+]

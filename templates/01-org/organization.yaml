@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail fresh organization OU structure and four explicitly approved Dev member accounts. Existing accounts remain manual-adoption only.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    arch: Existing OU foundation with four retained, explicitly gated SAP_Retail Dev accounts.
+    must:
+      - Create only the four approved SAP_Retail Dev accounts when explicitly enabled.
+      - Do not create, move, or modify existing accounts, Uganda accounts, Control Tower, IAM Identity Center, SCPs, VPCs, or workloads.
+Parameters:
+  RootId: { Type: String, AllowedPattern: '^r-[0-9a-z]{4,32}$' }
+  ApnTagValue: { Type: String, Default: '<APN_ID>' }
+  CreateApprovedDevAccountsLogArchive:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the SAP_Retail Dev Log Archive account only.
+  CreateApprovedDevAccountsSecurityTooling:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the SAP_Retail Dev Security Tooling account only.
+  CreateApprovedDevAccountsNetworking:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the SAP_Retail Dev Networking account only.
+  CreateApprovedDevAccountsKenyaNonProduction:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the SAP_Retail Dev Kenya Non-Production account only.
+Conditions:
+  LogArchiveDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsLogArchive, 'true']
+  SecurityToolingDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsSecurityTooling, 'true']
+  NetworkingDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsNetworking, 'true']
+  KenyaNonProductionDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsKenyaNonProduction, 'true']
+Resources:
+  SecurityOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Security, ParentId: !Ref RootId, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  InfrastructureOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Infrastructure, ParentId: !Ref RootId, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  WorkloadsOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Workloads, ParentId: !Ref RootId, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  SandboxOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Sandbox, ParentId: !Ref RootId, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  KenyaOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Kenya, ParentId: !Ref WorkloadsOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Kenya }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  KenyaProductionOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Production, ParentId: !Ref KenyaOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Kenya }, { Key: Environment, Value: Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  KenyaNonProductionOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Non-Production, ParentId: !Ref KenyaOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Kenya }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  LogArchiveDevAccount:
+    Type: AWS::Organizations::Account
+    Condition: LogArchiveDevAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Dedicated SAP_Retail Dev log-archive account in the approved Security OU.
+        must: [Use the approved primary email only, never modify an existing Log Archive account.]
+        mutable: review-required
+    Properties:
+      # CloudFormation cannot rename an account ("you must sign in as the root user"). The live display
+      # names were changed with `aws account put-account-name` (design decision 22): Log Archive,
+      # Security Tooling, Networking, Kenya Non-Production. This property keeps the name the stack was
+      # created with so stack updates stay no-ops. It is create-time only and not the live name.
+      AccountName: SAP_Retail Dev Log Archive
+      Email: dev.loging@example.com
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref SecurityOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  SecurityToolingDevAccount:
+    Type: AWS::Organizations::Account
+    Condition: SecurityToolingDevAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Dedicated SAP_Retail Dev security-tooling account in the approved Security OU.
+        must: [Use the approved primary email only, never modify an existing Security Tooling account.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Dev Security Tooling
+      Email: dev.security@example.com
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref SecurityOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  NetworkingDevAccount:
+    Type: AWS::Organizations::Account
+    Condition: NetworkingDevAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: SAP_Retail Dev networking account in the approved Infrastructure OU; no VPC or networking resources are created here.
+        must: [Use the approved primary email only, never modify the existing Network account or create networking resources in this release.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Dev Networking
+      Email: dev.networking@example.com
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref InfrastructureOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  KenyaNonProductionDevAccount:
+    Type: AWS::Organizations::Account
+    Condition: KenyaNonProductionDevAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: SAP_Retail Dev Kenya workload account in the existing Non-Production OU; workload VPC ownership remains with this account for a later deployment.
+        must: [Use the approved primary email only, never modify the existing Kenya Non-Production account or create a VPC or workload in this release.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Dev Kenya Non-Production
+      Email: dev.nonprod@example.com
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref KenyaNonProductionOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Kenya }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  UgandaOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Uganda, ParentId: !Ref WorkloadsOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Uganda }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  UgandaProductionOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Production, ParentId: !Ref UgandaOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Uganda }, { Key: Environment, Value: Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  UgandaNonProductionOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties: { Name: Non-Production, ParentId: !Ref UgandaOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Uganda }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+Outputs:
+  SecurityOuId: { Value: !Ref SecurityOU }
+  InfrastructureOuId: { Value: !Ref InfrastructureOU }
+  WorkloadsOuId: { Value: !Ref WorkloadsOU }
+  SandboxOuId: { Value: !Ref SandboxOU }
+  KenyaOuId: { Value: !Ref KenyaOU }
+  KenyaProductionOuId: { Value: !Ref KenyaProductionOU }
+  KenyaNonProductionOuId: { Value: !Ref KenyaNonProductionOU }
+  UgandaOuId: { Value: !Ref UgandaOU }
+  UgandaProductionOuId: { Value: !Ref UgandaProductionOU }
+  UgandaNonProductionOuId: { Value: !Ref UgandaNonProductionOU }
+  LogArchiveDevAccountId: { Condition: LogArchiveDevAccountCondition, Value: !Ref LogArchiveDevAccount }
+  SecurityToolingDevAccountId: { Condition: SecurityToolingDevAccountCondition, Value: !Ref SecurityToolingDevAccount }
+  NetworkingDevAccountId: { Condition: NetworkingDevAccountCondition, Value: !Ref NetworkingDevAccount }
+  KenyaNonProductionDevAccountId: { Condition: KenyaNonProductionDevAccountCondition, Value: !Ref KenyaNonProductionDevAccount }

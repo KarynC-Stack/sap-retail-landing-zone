@@ -1,0 +1,20 @@
+[
+  { "ParameterKey": "TemplateBaseUrl", "ParameterValue": "https://sr-lz-templates-<MANAGEMENT_ACCOUNT_ID>-eu-west-1.s3.eu-west-1.amazonaws.com" },
+  { "ParameterKey": "OrgId", "ParameterValue": "<ORGANIZATION_ID>" },
+  { "ParameterKey": "SourceLoggingBucketName", "ParameterValue": "aws-controltower-cloudtrail-logs-<LOG_ARCHIVE_ACCOUNT_ID>-<CT_BUCKET_SUFFIX>" },
+  { "ParameterKey": "SecurityOuId", "ParameterValue": "<SECURITY_OU_ID>" },
+  { "ParameterKey": "InfrastructureOuId", "ParameterValue": "<INFRASTRUCTURE_OU_ID>" },
+  { "ParameterKey": "WorkloadsOuId", "ParameterValue": "<WORKLOADS_OU_ID>" },
+  { "ParameterKey": "SandboxOuId", "ParameterValue": "<SANDBOX_OU_ID>" },
+  { "ParameterKey": "KenyaNonProductionOuId", "ParameterValue": "<KENYA_NONPRODUCTION_OU_ID>" },
+  { "ParameterKey": "LogArchiveAccountId", "ParameterValue": "<LOG_ARCHIVE_ACCOUNT_ID>" },
+  { "ParameterKey": "SecurityToolingAccountId", "ParameterValue": "<SECURITY_TOOLING_ACCOUNT_ID>" },
+  { "ParameterKey": "NetworkAccountId", "ParameterValue": "<NETWORK_ACCOUNT_ID>" },
+  { "ParameterKey": "KenyaNonProductionAccountId", "ParameterValue": "<KENYA_NONPROD_ACCOUNT_ID>" },
+  { "ParameterKey": "SecurityAlertEmail", "ParameterValue": "security-alerts@example.com" },
+  { "ParameterKey": "EnableAuditRoleStackSet", "ParameterValue": "true" },
+  { "ParameterKey": "EnableSchedulerStackSet", "ParameterValue": "true" },
+  { "ParameterKey": "EnableLogArchiveStackSet", "ParameterValue": "false" },
+  { "ParameterKey": "EnableSecurityToolingStackSet", "ParameterValue": "true" },
+  { "ParameterKey": "EnableNetworkHubStackSet", "ParameterValue": "false" }
+]
