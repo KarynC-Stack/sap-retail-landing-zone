@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  SAP_Retail generic organization foundation. Review governance requirements before
+  creating an AWS Organization in a private deployment environment.
+
+Parameters:
+  EnableAllFeatures:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable only after approved governance review.
+
+Conditions:
+  CreateOrganization:
+    Fn::Equals:
+      - Ref: EnableAllFeatures
+      - 'true'
+
+Resources:
+  Organization:
+    Type: AWS::Organizations::Organization
+    Condition: CreateOrganization
+    Properties:
+      FeatureSet: ALL
+
+Outputs:
+  OrganizationCreated:
+    Description: Indicates whether this optional foundation created an organization.
+    Value:
+      Fn::If:
+        - CreateOrganization
+        - 'true'
+        - 'false'

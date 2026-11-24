@@ -1,0 +1,17 @@
+# Copy to a private deployment repository and replace bracketed values there.
+organization:
+  management_account_id: <MANAGEMENT_ACCOUNT_ID>
+  organization_id: <ORGANIZATION_ID>
+  root_id: <ROOT_ID>
+
+logging:
+  central_log_bucket_name: <CENTRAL_LOG_BUCKET_NAME>
+  retention_policy: <APPROVED_RETENTION_POLICY>
+
+identity:
+  identity_center_instance_id: <IDENTITY_CENTER_INSTANCE_ID>
+  administrator_group: <ADMINISTRATOR_GROUP_NAME>
+
+governance:
+  change_reference: <CHANGE_REFERENCE>
+  evidence_location: <PRIVATE_EVIDENCE_LOCATION>

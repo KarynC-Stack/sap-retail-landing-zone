@@ -1,0 +1,10 @@
+# Local tooling
+.venv/
+__pycache__/
+*.pyc
+
+# Private deployment material
+*.pem
+*.key
+.env
+private/
