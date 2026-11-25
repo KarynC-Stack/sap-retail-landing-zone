@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail organization-wide security monitoring (Q4, Q6). CloudWatch metric filters, alarms and a dashboard over the Control Tower organization CloudTrail log group in the management account.
+# The organization trail already delivers every account's API activity to one CloudWatch Logs group
+# in the management account, so metric filters here see the whole organization without a
+# per-account deployment. These alarms cover the CIS AWS Foundations monitoring controls that
+# Security Hub reports on but does not act on: root usage, sign-in without MFA, failed
+# authorization, and changes to IAM, CloudTrail or the organization itself.
+#
+# Alarms publish to an operations topic. Security Hub CRITICAL and HIGH findings go to a separate
+# topic in the Security Tooling account (templates/04-security/security-tooling.yaml) because that
+# account is the delegated administrator. Both subscriptions need the recipient to confirm by email.
+Parameters:
+  OperationsAlertEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Recipient for infrastructure and governance alarms.
+  CloudTrailLogGroupName:
+    Type: String
+    Default: aws-controltower/CloudTrailLogs-<CT_BUCKET_SUFFIX>
+    Description: Control Tower organization CloudTrail log group in the management account. Created by Control Tower, not by this stack.
+  MetricNamespace: { Type: String, Default: SAP_Retail/Governance }
+  ApnTagValue: { Type: String, Default: '<APN_ID>' }
+Resources:
+  OperationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: sr-lz-operations-alerts
+      DisplayName: SAP_Retail landing zone alerts
+      Subscription: [{ Protocol: email, Endpoint: !Ref OperationsAlertEmail }]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+  # CloudWatch alarms publish through the SNS service principal, which needs an explicit allow.
+  OperationsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref OperationsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudWatchAlarmsPublish
+            Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref OperationsTopic
+            Condition: { StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' } }
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
+            Resource: !Ref OperationsTopic
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  # ---------------- Metric filters over the organization trail ----------------
+  RootUsageFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-root-usage
+      FilterPattern: '{ $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent" }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: RootAccountUsage, MetricValue: '1', DefaultValue: 0 }]
+  ConsoleSignInWithoutMfaFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-signin-without-mfa
+      FilterPattern: '{ ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.userIdentity.type = "IAMUser") && ($.responseElements.ConsoleLogin = "Success") }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: ConsoleSignInWithoutMfa, MetricValue: '1', DefaultValue: 0 }]
+  UnauthorizedApiCallsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-unauthorized-api-calls
+      FilterPattern: '{ ($.errorCode = "*UnauthorizedOperation") || ($.errorCode = "AccessDenied*") }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: UnauthorizedApiCalls, MetricValue: '1', DefaultValue: 0 }]
+  IamPolicyChangeFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-iam-policy-change
+      FilterPattern: '{ ($.eventName = DeleteGroupPolicy) || ($.eventName = DeleteRolePolicy) || ($.eventName = DeleteUserPolicy) || ($.eventName = PutGroupPolicy) || ($.eventName = PutRolePolicy) || ($.eventName = PutUserPolicy) || ($.eventName = CreatePolicy) || ($.eventName = DeletePolicy) || ($.eventName = CreatePolicyVersion) || ($.eventName = DeletePolicyVersion) || ($.eventName = AttachRolePolicy) || ($.eventName = DetachRolePolicy) || ($.eventName = AttachUserPolicy) || ($.eventName = DetachUserPolicy) || ($.eventName = AttachGroupPolicy) || ($.eventName = DetachGroupPolicy) }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: IamPolicyChanges, MetricValue: '1', DefaultValue: 0 }]
+  CloudTrailChangeFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-cloudtrail-change
+      FilterPattern: '{ ($.eventName = CreateTrail) || ($.eventName = UpdateTrail) || ($.eventName = DeleteTrail) || ($.eventName = StartLogging) || ($.eventName = StopLogging) }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: CloudTrailChanges, MetricValue: '1', DefaultValue: 0 }]
+  OrganizationChangeFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-organization-change
+      FilterPattern: '{ ($.eventSource = "organizations.amazonaws.com") && (($.eventName = "LeaveOrganization") || ($.eventName = "RemoveAccountFromOrganization") || ($.eventName = "DeletePolicy") || ($.eventName = "DetachPolicy") || ($.eventName = "DisablePolicyType") || ($.eventName = "UpdatePolicy") || ($.eventName = "MoveAccount")) }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: OrganizationChanges, MetricValue: '1', DefaultValue: 0 }]
+  BreakGlassAssumedFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      FilterName: sr-lz-break-glass-assumed
+      FilterPattern: '{ ($.eventName = "AssumeRole") && ($.requestParameters.roleArn = "*BreakGlassAdministrator*") }'
+      MetricTransformations: [{ MetricNamespace: !Ref MetricNamespace, MetricName: BreakGlassAssumed, MetricValue: '1', DefaultValue: 0 }]
+
+  # ---------------- Alarms ----------------
+  # Every alarm treats missing data as not breaching: no matching events is the normal state.
+  RootUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-root-account-usage
+      AlarmDescription: A member or management account root user made an API call. Investigate immediately.
+      Namespace: !Ref MetricNamespace
+      MetricName: RootAccountUsage
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  ConsoleSignInWithoutMfaAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-console-signin-without-mfa
+      AlarmDescription: An IAM user signed in to the console without MFA.
+      Namespace: !Ref MetricNamespace
+      MetricName: ConsoleSignInWithoutMfa
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  UnauthorizedApiCallsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-unauthorized-api-calls
+      AlarmDescription: Sustained access-denied activity. Could be a misconfigured role, an SCP denial, or probing.
+      Namespace: !Ref MetricNamespace
+      MetricName: UnauthorizedApiCalls
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  IamPolicyChangeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-iam-policy-change
+      AlarmDescription: An IAM policy was created, changed, attached or detached.
+      Namespace: !Ref MetricNamespace
+      MetricName: IamPolicyChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  CloudTrailChangeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-cloudtrail-change
+      AlarmDescription: A CloudTrail trail was changed or logging was stopped. The SCP should deny this, so an alarm means the SCP was bypassed or an exempt role was used.
+      Namespace: !Ref MetricNamespace
+      MetricName: CloudTrailChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  OrganizationChangeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-organization-change
+      AlarmDescription: An account was moved or removed, or an SCP was changed or detached.
+      Namespace: !Ref MetricNamespace
+      MetricName: OrganizationChanges
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+  BreakGlassAssumedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: sr-lz-break-glass-assumed
+      AlarmDescription: The break-glass administrator role was assumed. Expected only during an incident with an open ticket.
+      Namespace: !Ref MetricNamespace
+      MetricName: BreakGlassAssumed
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsTopic]
+
+  GovernanceDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: sr-lz-governance
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            { "type": "text", "x": 0, "y": 0, "width": 24, "height": 2,
+              "properties": { "markdown": "# SAP_Retail landing zone governance\nOrganization-wide CloudTrail signals from the Control Tower trail. Security Hub and GuardDuty findings are in the Security Tooling account. Alarms notify ${OperationsAlertEmail}." } },
+            { "type": "metric", "x": 0, "y": 2, "width": 12, "height": 6,
+              "properties": { "title": "Privileged and unauthenticated access", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+                "metrics": [
+                  [ "${MetricNamespace}", "RootAccountUsage", { "label": "Root account usage" } ],
+                  [ ".", "ConsoleSignInWithoutMfa", { "label": "Console sign-in without MFA" } ],
+                  [ ".", "BreakGlassAssumed", { "label": "Break-glass assumed" } ]
+                ] } },
+            { "type": "metric", "x": 12, "y": 2, "width": 12, "height": 6,
+              "properties": { "title": "Control plane changes", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+                "metrics": [
+                  [ "${MetricNamespace}", "IamPolicyChanges", { "label": "IAM policy changes" } ],
+                  [ ".", "CloudTrailChanges", { "label": "CloudTrail changes" } ],
+                  [ ".", "OrganizationChanges", { "label": "Organization changes" } ]
+                ] } },
+            { "type": "metric", "x": 0, "y": 8, "width": 12, "height": 6,
+              "properties": { "title": "Access denied volume", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+                "metrics": [ [ "${MetricNamespace}", "UnauthorizedApiCalls", { "label": "Unauthorized API calls" } ] ] } },
+            { "type": "alarm", "x": 12, "y": 8, "width": 12, "height": 6,
+              "properties": { "title": "Governance alarm state",
+                "alarms": [
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-root-account-usage",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-console-signin-without-mfa",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-break-glass-assumed",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-iam-policy-change",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-cloudtrail-change",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-organization-change",
+                  "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:sr-lz-unauthorized-api-calls"
+                ] } }
+          ]
+        }
+Outputs:
+  OperationsTopicArn: { Value: !Ref OperationsTopic, Description: Subscribe the operations team here. The email subscription must be confirmed by the recipient. }
+  DashboardName: { Value: !Ref GovernanceDashboard }

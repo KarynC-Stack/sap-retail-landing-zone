@@ -1,0 +1,4 @@
+[
+  { "ParameterKey": "OperationsAlertEmail", "ParameterValue": "security-alerts@example.com" },
+  { "ParameterKey": "CloudTrailLogGroupName", "ParameterValue": "aws-controltower/CloudTrailLogs-<CT_BUCKET_SUFFIX>" }
+]
