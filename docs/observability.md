@@ -45,7 +45,6 @@ Every SNS email subscription needs the recipient to click a confirmation link. A
 ## What is not in place
 
 - **No alert has been tested end to end.** `docs/runbooks/alert-test.md` is the procedure. Until it is run and recorded, delivery is unproven even though the wiring is in place.
-- **No third-party SIEM.** Nothing forwards to Splunk, Datadog or similar. The Log Archive bucket is the integration point if one is added.
 - **No application or workload monitoring.** There are no workloads in this organization. The live Kenya SAP estate is monitored separately and is not covered here.
 - **No operational metrics dashboard** (CPU, memory, disk) because there are no instances.
 

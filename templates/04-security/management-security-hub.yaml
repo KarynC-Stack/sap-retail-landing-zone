@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SAP_Retail management account Security Hub subscription. Security Hub central configuration cannot push a configuration policy onto the organization management account, so its standards are subscribed here instead of by the delegated administrator in Security Tooling.
+Parameters:
+  EnableManagementSecurityHub:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Gate. Subscribing the management account starts billable security checks and will raise findings for pre-existing configuration, so it is opt-in.
+Conditions:
+  WithHub: !Equals [!Ref EnableManagementSecurityHub, 'true']
+Resources:
+  # Retained on purpose: disabling Security Hub deletes the account findings history, which is
+  # audit evidence. Removing the stack must not silently discard it.
+  Hub:
+    Type: AWS::SecurityHub::Hub
+    Condition: WithHub
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Closes the management account gap in benchmark scoring recorded in design decision 23.
+        must:
+          - EnableDefaultStandards stays false so the two standards below are the only subscriptions and match the organization policy sr-lz-fsbp-cis.
+          - ControlFindingGenerator must be SECURITY_CONTROL so control IDs are consolidated and comparable with the member accounts.
+    Properties:
+      EnableDefaultStandards: false
+      ControlFindingGenerator: SECURITY_CONTROL
+      Tags: { Client: SAP_Retail, ManagedBy: Kitstek, Country: Shared, Environment: Shared }
+  # The two standards are chained rather than parallel. Subscribing to several standards in one
+  # call is throttled, and a throttled subscribe leaves the stack in a failed state.
+  FsbpStandard:
+    Type: AWS::SecurityHub::Standard
+    Condition: WithHub
+    DependsOn: Hub
+    Properties:
+      StandardsArn: !Sub 'arn:${AWS::Partition}:securityhub:${AWS::Region}::standards/aws-foundational-security-best-practices/v/1.0.0'
+  CisStandard:
+    Type: AWS::SecurityHub::Standard
+    Condition: WithHub
+    DependsOn: FsbpStandard
+    Properties:
+      StandardsArn: !Sub 'arn:${AWS::Partition}:securityhub:${AWS::Region}::standards/cis-aws-foundations-benchmark/v/3.0.0'
+Outputs:
+  HubArn:
+    Condition: WithHub
+    Value: !Ref Hub
