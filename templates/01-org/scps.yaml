@@ -8,6 +8,14 @@ Parameters:
   UgandaOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
   UgandaNonProductionOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
   SandboxOuId: { Type: String, AllowedPattern: '^ou-[a-z0-9-]+$' }
+  ApnTagValue: { Type: String, Default: '<APN_ID>' }
+  # The questionnaire answers for Q2, Q4 and Q7 describe the APN tag as enforced by SCP. The policy
+  # below implements that. Attachment is gated because an enforcing tag SCP denies resource creation
+  # that omits the tag, which affects every principal in the organization: it must be simulated and
+  # approved first. Design decision 21 records the current report-only position and this gate.
+  AttachTagEnforcementScp: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+Conditions:
+  WithTagEnforcement: !Equals [!Ref AttachTagEnforcementScp, 'true']
 Resources:
   RootProtection:
     Type: AWS::Organizations::Policy
@@ -19,6 +27,14 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - { Sid: DenyLeaveOrganization, Effect: Deny, Action: organizations:LeaveOrganization, Resource: '*' }
+          # Q2/Q4: "root activity blocked by SCP". SCPs never restrict the management account, so this
+          # denies the root user of every member account. Day-to-day access is Identity Center and
+          # break-glass is an IAM role, so nothing legitimate uses a member root user.
+          - Sid: DenyMemberAccountRootUser
+            Effect: Deny
+            Action: '*'
+            Resource: '*'
+            Condition: { StringLike: { aws:PrincipalArn: 'arn:aws:iam::*:root' } }
           - Sid: ProtectLandingZoneRoles
             Effect: Deny
             Action: [iam:DeleteRole, iam:UpdateAssumeRolePolicy, iam:DetachRolePolicy]
@@ -86,6 +102,41 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - { Sid: DenyProductionClassInstances, Effect: Deny, Action: ec2:RunInstances, Resource: 'arn:aws:ec2:*:*:instance/*', Condition: { StringLike: { ec2:InstanceType: ['*.8xlarge', '*.12xlarge', '*.16xlarge', '*.24xlarge', '*.metal*', 'p*', 'g*', 'trn*'] } } }
+  # Q2/Q4/Q7: the APN attribution tag requirement on created resources. Preventive layer; the
+  # corrective layer is templates/04-security/member/apn-tag-enforcer.yaml, which tags resources
+  # that do not support tag-on-create. Attached only when AttachTagEnforcementScp is 'true'.
+  ApnTagRequirement:
+    Type: AWS::Organizations::Policy
+    Condition: WithTagEnforcement
+    Properties:
+      Name: require-apn-tag
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: [!Ref RootId]
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyCreateWithoutApnTag
+            Effect: Deny
+            Action: [ec2:RunInstances, ec2:CreateVolume, rds:CreateDBInstance, rds:CreateDBCluster, s3:CreateBucket, lambda:CreateFunction, elasticloadbalancing:CreateLoadBalancer, eks:CreateCluster, ecs:CreateCluster]
+            Resource: '*'
+            Condition:
+              'Null': { 'aws:RequestTag/aws-apn-id': 'true' }
+              ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec', 'arn:aws:iam::*:role/aws-service-role/*'] }
+          - Sid: DenyWrongApnTagValue
+            Effect: Deny
+            Action: [ec2:RunInstances, ec2:CreateVolume, rds:CreateDBInstance, rds:CreateDBCluster, s3:CreateBucket, lambda:CreateFunction, elasticloadbalancing:CreateLoadBalancer, eks:CreateCluster, ecs:CreateCluster]
+            Resource: '*'
+            Condition:
+              StringNotEquals: { 'aws:RequestTag/aws-apn-id': !Ref ApnTagValue }
+              'Null': { 'aws:RequestTag/aws-apn-id': 'false' }
+              ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec', 'arn:aws:iam::*:role/aws-service-role/*'] }
+          - Sid: DenyRemovingApnTag
+            Effect: Deny
+            Action: [ec2:DeleteTags, s3:PutBucketTagging, rds:RemoveTagsFromResource, lambda:UntagResource]
+            Resource: '*'
+            Condition:
+              'ForAnyValue:StringEquals': { 'aws:TagKeys': 'aws-apn-id' }
+              ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec', 'arn:aws:iam::*:role/aws-service-role/*'] }
   SandboxIsolation:
     Type: AWS::Organizations::Policy
     Properties:

@@ -3,5 +3,8 @@
   { "ParameterKey": "CreateApprovedDevAccountsLogArchive", "ParameterValue": "true" },
   { "ParameterKey": "CreateApprovedDevAccountsSecurityTooling", "ParameterValue": "true" },
   { "ParameterKey": "CreateApprovedDevAccountsNetworking", "ParameterValue": "true" },
-  { "ParameterKey": "CreateApprovedDevAccountsKenyaNonProduction", "ParameterValue": "true" }
+  { "ParameterKey": "CreateApprovedDevAccountsKenyaNonProduction", "ParameterValue": "true" },
+  { "ParameterKey": "CreateApprovedAccountsKenyaProduction", "ParameterValue": "false" },
+  { "ParameterKey": "CreateApprovedAccountsUgandaProduction", "ParameterValue": "false" },
+  { "ParameterKey": "CreateApprovedAccountsUgandaNonProduction", "ParameterValue": "false" }
 ]

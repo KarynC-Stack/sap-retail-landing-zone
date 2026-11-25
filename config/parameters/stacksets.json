@@ -16,5 +16,7 @@
   { "ParameterKey": "EnableSchedulerStackSet", "ParameterValue": "true" },
   { "ParameterKey": "EnableLogArchiveStackSet", "ParameterValue": "false" },
   { "ParameterKey": "EnableSecurityToolingStackSet", "ParameterValue": "true" },
-  { "ParameterKey": "EnableNetworkHubStackSet", "ParameterValue": "false" }
+  { "ParameterKey": "EnableNetworkHubStackSet", "ParameterValue": "false" },
+  { "ParameterKey": "EnableApnTagEnforcerStackSet", "ParameterValue": "false" },
+  { "ParameterKey": "EnableAccountAnalyzerStackSet", "ParameterValue": "false" }
 ]

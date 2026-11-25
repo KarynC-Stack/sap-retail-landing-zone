@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: APN tag enforcer - EventBridge + Lambda that adds the aws-apn-id partner tag (and the standard tag set where missing) to resources at creation (Q4, Q7; Kit D7). Deployed to every member account by StackSet sr-lz-apn-tag-enforcer.
-# Second enforcement layer behind SCP sr-root-require-apn-tag (preventive). This one is corrective:
+# Second enforcement layer behind the SCP named require-apn-tag in templates/01-org/scps.yaml
+# (preventive, attached only when AttachTagEnforcementScp is true). This one is corrective:
 # it tags what the SCP cannot cover (resources without tag-on-create support, volumes, snapshots, etc.).
 # It only ADDS missing tags; it never overwrites existing tag values.
 

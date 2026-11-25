@@ -27,12 +27,19 @@ Parameters:
   EnableSecurityToolingStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
   EnableNetworkHubStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
   EnableSchedulerStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  # Corrective tagging layer (Q4, Q7) and the per-account Access Analyzer (Q3). Both are gated:
+  # the enforcer writes tags on resource creation across every account, and per-account analyzers
+  # are billed per analyzer, so each needs its own approval before rollout.
+  EnableApnTagEnforcerStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  EnableAccountAnalyzerStackSet: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
 Conditions:
   WithAuditRole: !Equals [!Ref EnableAuditRoleStackSet, 'true']
   WithLogArchive: !Equals [!Ref EnableLogArchiveStackSet, 'true']
   WithSecurityTooling: !Equals [!Ref EnableSecurityToolingStackSet, 'true']
   WithNetworkHub: !Equals [!Ref EnableNetworkHubStackSet, 'true']
   WithScheduler: !Equals [!Ref EnableSchedulerStackSet, 'true']
+  WithApnTagEnforcer: !Equals [!Ref EnableApnTagEnforcerStackSet, 'true']
+  WithAccountAnalyzer: !Equals [!Ref EnableAccountAnalyzerStackSet, 'true']
 Resources:
   AuditRoleStackSet:
     Type: AWS::CloudFormation::StackSet
@@ -50,6 +57,11 @@ Resources:
         - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref LogArchiveAccountId, !Ref SecurityToolingAccountId], AccountFilterType: INTERSECTION }
           Regions: [!Ref HomeRegion]
         - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        # Q2/Q4 describe this role as present in every member account. Workload accounts are included
+        # here for that reason. Service-managed StackSets cannot target the management account, so
+        # "every member account" means the four accounts outside the management account.
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref WorkloadsOuId], Accounts: [!Ref KenyaNonProductionAccountId], AccountFilterType: INTERSECTION }
           Regions: [!Ref HomeRegion]
   LogArchiveStackSet:
     Type: AWS::CloudFormation::StackSet
@@ -95,6 +107,43 @@ Resources:
       Parameters: [{ ParameterKey: OrgArn, ParameterValue: !Sub 'arn:aws:organizations::${ManagementAccountId}:organization/${OrgId}' }]
       StackInstancesGroup:
         - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  # Q4/Q7: corrective tagging in every member account, behind the preventive SCP.
+  ApnTagEnforcerStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithApnTagEnforcer
+    Properties:
+      StackSetName: sr-lz-apn-tag-enforcer
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      Capabilities: [CAPABILITY_NAMED_IAM]
+      OperationPreferences: { MaxConcurrentCount: 1, FailureToleranceCount: 0, RegionConcurrencyType: SEQUENTIAL }
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/04-security/member/apn-tag-enforcer.yaml'
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref LogArchiveAccountId, !Ref SecurityToolingAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref WorkloadsOuId], Accounts: [!Ref KenyaNonProductionAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+  # Q3: an Access Analyzer in each member account, alongside the organization-level analyzers.
+  AccountAnalyzerStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: WithAccountAnalyzer
+    Properties:
+      StackSetName: sr-lz-account-analyzer
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment: { Enabled: false }
+      ManagedExecution: { Active: true }
+      OperationPreferences: { MaxConcurrentCount: 1, FailureToleranceCount: 0, RegionConcurrencyType: SEQUENTIAL }
+      TemplateURL: !Sub '${TemplateBaseUrl}/templates/04-security/member/account-analyzer.yaml'
+      StackInstancesGroup:
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref SecurityOuId], Accounts: [!Ref LogArchiveAccountId, !Ref SecurityToolingAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref InfrastructureOuId], Accounts: [!Ref NetworkAccountId], AccountFilterType: INTERSECTION }
+          Regions: [!Ref HomeRegion]
+        - DeploymentTargets: { OrganizationalUnitIds: [!Ref WorkloadsOuId], Accounts: [!Ref KenyaNonProductionAccountId], AccountFilterType: INTERSECTION }
           Regions: [!Ref HomeRegion]
   SchedulerStackSet:
     Type: AWS::CloudFormation::StackSet

@@ -10,6 +10,7 @@
     { "name": "sr-lz-scps", "template": "templates/01-org/scps.yaml", "parameters": "config/parameters/scps.json", "pipeline": false },
     { "name": "sr-lz-tag-policy", "template": "templates/01-org/tag-policy.yaml", "parameters": "config/parameters/tag-policy.json", "pipeline": false },
     { "name": "sr-lz-identity", "template": "templates/03-identity/permission-sets.yaml", "parameters": "config/parameters/identity.json", "pipeline": false },
+    { "name": "sr-lz-break-glass", "template": "templates/03-identity/break-glass.yaml", "parameters": "config/parameters/break-glass.json", "pipeline": false },
     { "name": "sr-lz-stacksets", "template": "templates/04-security/stacksets.yaml", "parameters": "config/parameters/stacksets.json", "pipeline": false },
     { "name": "sr-lz-cost", "template": "templates/07-cost/cost-governance.yaml", "parameters": "config/parameters/cost.json", "pipeline": false }
   ]

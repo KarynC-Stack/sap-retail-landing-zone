@@ -31,11 +31,38 @@ Parameters:
     Default: 'false'
     AllowedValues: ['true', 'false']
     Description: Explicit approval gate for the SAP_Retail Dev Kenya Non-Production account only.
+  # The questionnaire (Q1, Q2, Q3) describes six member accounts: Log Archive, Security Tooling,
+  # Kenya Production, Kenya Non-Production, Uganda Production and Uganda Non-Production. The three
+  # below are defined here so the account model is complete and reviewable, and are gated off.
+  # Kenya Production runs live SAP in a separate organization; creating it here would be a second,
+  # empty account, so it stays off until a migration decision. Uganda is deferred by decision 3.
+  # Each needs a unique, unused primary email address before it can be created.
+  CreateApprovedAccountsKenyaProduction:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for a Kenya Production account in this organization. Requires KenyaProductionAccountEmail.
+  CreateApprovedAccountsUgandaProduction:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the Uganda Production account. Deferred until Uganda business approval.
+  CreateApprovedAccountsUgandaNonProduction:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Explicit approval gate for the Uganda Non-Production account. Deferred until Uganda business approval.
+  KenyaProductionAccountEmail: { Type: String, Default: '', Description: Unused primary email for the Kenya Production account. Required when its gate is true. }
+  UgandaProductionAccountEmail: { Type: String, Default: '', Description: Unused primary email for the Uganda Production account. Required when its gate is true. }
+  UgandaNonProductionAccountEmail: { Type: String, Default: '', Description: Unused primary email for the Uganda Non-Production account. Required when its gate is true. }
 Conditions:
   LogArchiveDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsLogArchive, 'true']
   SecurityToolingDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsSecurityTooling, 'true']
   NetworkingDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsNetworking, 'true']
   KenyaNonProductionDevAccountCondition: !Equals [!Ref CreateApprovedDevAccountsKenyaNonProduction, 'true']
+  KenyaProductionAccountCondition: !And [!Equals [!Ref CreateApprovedAccountsKenyaProduction, 'true'], !Not [!Equals [!Ref KenyaProductionAccountEmail, '']]]
+  UgandaProductionAccountCondition: !And [!Equals [!Ref CreateApprovedAccountsUgandaProduction, 'true'], !Not [!Equals [!Ref UgandaProductionAccountEmail, '']]]
+  UgandaNonProductionAccountCondition: !And [!Equals [!Ref CreateApprovedAccountsUgandaNonProduction, 'true'], !Not [!Equals [!Ref UgandaNonProductionAccountEmail, '']]]
 Resources:
   SecurityOU:
     Type: AWS::Organizations::OrganizationalUnit
@@ -91,7 +118,10 @@ Resources:
       Email: dev.loging@example.com
       RoleName: OrganizationAccountAccessRole
       ParentIds: [!Ref SecurityOU]
-      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+      # Environment is Shared, not Dev: the tag policy allows Production, Non-Production and Shared
+      # only, and a shared-service account serves every environment. Country is Shared for the same
+      # reason. The live tags still read Environment=Dev until this stack is updated (decision 25).
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Shared }, { Key: Environment, Value: Shared }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
   SecurityToolingDevAccount:
     Type: AWS::Organizations::Account
     Condition: SecurityToolingDevAccountCondition
@@ -107,7 +137,7 @@ Resources:
       Email: dev.security@example.com
       RoleName: OrganizationAccountAccessRole
       ParentIds: [!Ref SecurityOU]
-      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Shared }, { Key: Environment, Value: Shared }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
   NetworkingDevAccount:
     Type: AWS::Organizations::Account
     Condition: NetworkingDevAccountCondition
@@ -123,7 +153,7 @@ Resources:
       Email: dev.networking@example.com
       RoleName: OrganizationAccountAccessRole
       ParentIds: [!Ref InfrastructureOU]
-      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Environment, Value: Dev }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Shared }, { Key: Environment, Value: Shared }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
   KenyaNonProductionDevAccount:
     Type: AWS::Organizations::Account
     Condition: KenyaNonProductionDevAccountCondition
@@ -140,6 +170,22 @@ Resources:
       RoleName: OrganizationAccountAccessRole
       ParentIds: [!Ref KenyaNonProductionOU]
       Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Kenya }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  KenyaProductionAccount:
+    Type: AWS::Organizations::Account
+    Condition: KenyaProductionAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Kenya Production workload account in the Kenya Production OU. Gated off; the live Kenya SAP workload runs in a separate organization.
+        must: [Never target or modify the live Kenya Production account in the other organization.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Kenya Production
+      Email: !Ref KenyaProductionAccountEmail
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref KenyaProductionOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Kenya }, { Key: Environment, Value: Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
   UgandaOU:
     Type: AWS::Organizations::OrganizationalUnit
     DeletionPolicy: Retain
@@ -155,6 +201,38 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties: { Name: Non-Production, ParentId: !Ref UgandaOU, Tags: [{ Key: Client, Value: SAP_Retail }, { Key: Country, Value: Uganda }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }] }
+  UgandaProductionAccount:
+    Type: AWS::Organizations::Account
+    Condition: UgandaProductionAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Uganda Production workload account. Gated off until Uganda business and data-residency approval (design decision 3).
+        must: [Do not create until the Uganda operating Region is approved.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Uganda Production
+      Email: !Ref UgandaProductionAccountEmail
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref UgandaProductionOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Uganda }, { Key: Environment, Value: Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
+  UgandaNonProductionAccount:
+    Type: AWS::Organizations::Account
+    Condition: UgandaNonProductionAccountCondition
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Uganda Non-Production workload account. Gated off until Uganda business and data-residency approval (design decision 3).
+        must: [Do not create until the Uganda operating Region is approved.]
+        mutable: review-required
+    Properties:
+      AccountName: SAP_Retail Uganda Non-Production
+      Email: !Ref UgandaNonProductionAccountEmail
+      RoleName: OrganizationAccountAccessRole
+      ParentIds: [!Ref UgandaNonProductionOU]
+      Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }, { Key: Country, Value: Uganda }, { Key: Environment, Value: Non-Production }, { Key: aws-apn-id, Value: !Ref ApnTagValue }]
 Outputs:
   SecurityOuId: { Value: !Ref SecurityOU }
   InfrastructureOuId: { Value: !Ref InfrastructureOU }
@@ -170,3 +248,6 @@ Outputs:
   SecurityToolingDevAccountId: { Condition: SecurityToolingDevAccountCondition, Value: !Ref SecurityToolingDevAccount }
   NetworkingDevAccountId: { Condition: NetworkingDevAccountCondition, Value: !Ref NetworkingDevAccount }
   KenyaNonProductionDevAccountId: { Condition: KenyaNonProductionDevAccountCondition, Value: !Ref KenyaNonProductionDevAccount }
+  KenyaProductionAccountId: { Condition: KenyaProductionAccountCondition, Value: !Ref KenyaProductionAccount }
+  UgandaProductionAccountId: { Condition: UgandaProductionAccountCondition, Value: !Ref UgandaProductionAccount }
+  UgandaNonProductionAccountId: { Condition: UgandaNonProductionAccountCondition, Value: !Ref UgandaNonProductionAccount }

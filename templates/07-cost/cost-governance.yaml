@@ -10,14 +10,75 @@ Parameters:
   # "Limit exceeded on dimensional spend monitor creation". Pass its ARN to reuse it; leave empty
   # to have this stack create one in an account that does not have it yet.
   ExistingServiceMonitorArn: { Type: String, Default: '' }
+  # Q7 describes per-account budgets with higher thresholds for production and tighter caps for
+  # non-production, plus cost categories that roll spend up by country and environment.
+  ProductionAccountIds: { Type: CommaDelimitedList, Default: '' }
+  NonProductionAccountIds: { Type: CommaDelimitedList, Default: '' }
+  SharedServicesAccountIds: { Type: CommaDelimitedList, Default: '' }
+  ProductionBudgetUsd: { Type: Number, Default: 2000 }
+  NonProductionBudgetUsd: { Type: Number, Default: 250 }
+  SharedServicesBudgetUsd: { Type: Number, Default: 250 }
+  CreateCostCategories: { Type: String, Default: 'false', AllowedValues: ['true', 'false'], Description: Cost categories are billed per month once created. Enable when per-country and per-environment rollup reporting is required. }
 Conditions:
   CreateServiceMonitor: !Equals [!Ref ExistingServiceMonitorArn, '']
+  WithProductionBudget: !Not [!Equals [!Join ['', !Ref ProductionAccountIds], '']]
+  WithNonProductionBudget: !Not [!Equals [!Join ['', !Ref NonProductionAccountIds], '']]
+  WithSharedServicesBudget: !Not [!Equals [!Join ['', !Ref SharedServicesAccountIds], '']]
+  WithCostCategories: !Equals [!Ref CreateCostCategories, 'true']
 Resources:
   OrganizationBudget:
     Type: AWS::Budgets::Budget
     Properties:
       Budget: { BudgetName: sr-lz-organization-monthly, BudgetType: COST, TimeUnit: MONTHLY, BudgetLimit: { Amount: !Ref OrganizationBudgetUsd, Unit: USD }, CostFilters: { LinkedAccount: !Ref ActiveAccountIds } }
       NotificationsWithSubscribers: [{ Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }, Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref CostAlertEmail }] }]
+  # Per-environment budgets. Production carries the higher threshold; non-production is capped
+  # tighter so idle spend is visible early. Each alerts at 80 per cent of actual spend.
+  ProductionBudget:
+    Type: AWS::Budgets::Budget
+    Condition: WithProductionBudget
+    Properties:
+      Budget: { BudgetName: sr-lz-production-monthly, BudgetType: COST, TimeUnit: MONTHLY, BudgetLimit: { Amount: !Ref ProductionBudgetUsd, Unit: USD }, CostFilters: { LinkedAccount: !Ref ProductionAccountIds } }
+      NotificationsWithSubscribers: [{ Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }, Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref CostAlertEmail }] }]
+  NonProductionBudget:
+    Type: AWS::Budgets::Budget
+    Condition: WithNonProductionBudget
+    Properties:
+      Budget: { BudgetName: sr-lz-nonproduction-monthly, BudgetType: COST, TimeUnit: MONTHLY, BudgetLimit: { Amount: !Ref NonProductionBudgetUsd, Unit: USD }, CostFilters: { LinkedAccount: !Ref NonProductionAccountIds } }
+      NotificationsWithSubscribers: [{ Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }, Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref CostAlertEmail }] }]
+  SharedServicesBudget:
+    Type: AWS::Budgets::Budget
+    Condition: WithSharedServicesBudget
+    Properties:
+      Budget: { BudgetName: sr-lz-shared-services-monthly, BudgetType: COST, TimeUnit: MONTHLY, BudgetLimit: { Amount: !Ref SharedServicesBudgetUsd, Unit: USD }, CostFilters: { LinkedAccount: !Ref SharedServicesAccountIds } }
+      NotificationsWithSubscribers: [{ Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }, Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref CostAlertEmail }] }]
+  # Cost categories roll spend up by country and by environment, using the tag dictionary values.
+  # They depend on the Country and Environment cost allocation tags being active in Billing.
+  CountryCostCategory:
+    Type: AWS::CE::CostCategory
+    Condition: WithCostCategories
+    Properties:
+      Name: sr-lz-country
+      RuleVersion: CostCategoryExpression.v1
+      DefaultValue: Unallocated
+      Rules: |
+        [
+          {"Value":"Kenya","Rule":{"Tags":{"Key":"Country","Values":["Kenya"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"},
+          {"Value":"Uganda","Rule":{"Tags":{"Key":"Country","Values":["Uganda"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"},
+          {"Value":"Shared","Rule":{"Tags":{"Key":"Country","Values":["Shared"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"}
+        ]
+  EnvironmentCostCategory:
+    Type: AWS::CE::CostCategory
+    Condition: WithCostCategories
+    Properties:
+      Name: sr-lz-environment
+      RuleVersion: CostCategoryExpression.v1
+      DefaultValue: Unallocated
+      Rules: |
+        [
+          {"Value":"Production","Rule":{"Tags":{"Key":"Environment","Values":["Production"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"},
+          {"Value":"Non-Production","Rule":{"Tags":{"Key":"Environment","Values":["Non-Production"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"},
+          {"Value":"Shared","Rule":{"Tags":{"Key":"Environment","Values":["Shared"],"MatchOptions":["EQUALS"]}},"Type":"REGULAR"}
+        ]
   ServiceAnomalyMonitor:
     Type: AWS::CE::AnomalyMonitor
     Condition: CreateServiceMonitor

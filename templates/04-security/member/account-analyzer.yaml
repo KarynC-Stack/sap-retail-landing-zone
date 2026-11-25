@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Account-level IAM Access Analyzer for a member account (Q3). Complements the two organization-level analyzers in the Security Tooling account.
+# The organization-level analyzers (templates/04-security/security-tooling.yaml) already evaluate
+# every account with the organization as the zone of trust. This per-account analyzer uses the
+# ACCOUNT zone of trust instead, so it reports resources shared outside the account even when they
+# stay inside the organization. Deployed by StackSet sr-lz-account-analyzer.
+#
+# Cost note: Access Analyzer bills per analyzer. An unused-access analyzer is billed per IAM role
+# and user it reviews, so only the external-access analyzer is created here.
+Parameters:
+  ApnTagValue: { Type: String, Default: '<APN_ID>' }
+Resources:
+  AccountExternalAccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Properties:
+      AnalyzerName: sr-lz-account-external-access
+      Type: ACCOUNT
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
+Outputs:
+  AnalyzerArn: { Value: !GetAtt AccountExternalAccessAnalyzer.Arn }

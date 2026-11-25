@@ -15,8 +15,8 @@
 ## Custodians
 | Role | Name | Holds |
 |------|------|-------|
-| Custodian A | `<CUSTODIAN_A_NAME>` (custodian-a@example.com) | Password (sealed, in the password vault) |
-| Custodian B | `<CUSTODIAN_B_NAME>` (custodian-b@example.com) | FIDO2 key (safe) |
+| Custodian A | <CUSTODIAN_A_NAME> (custodian-a@example.com) | Password (sealed, in the password vault) |
+| Custodian B | <CUSTODIAN_B_NAME> (security-alerts@example.com) | FIDO2 key (safe) |
 
 ## Procedure
 1. Open an incident ticket. Record the reason and the approver.
