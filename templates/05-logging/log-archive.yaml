@@ -120,9 +120,32 @@ Resources:
       Role: !GetAtt ReplicationConfigFunctionRole.Arn
       Code:
         ZipFile: |
-          import boto3, cfnresponse
+          # The response is posted with urllib rather than the cfnresponse helper. AWS only injects
+          # cfnresponse for inline code in a directly deployed stack; through a StackSet the module
+          # is absent and the function dies on import with
+          # "Runtime.ImportModuleError: No module named 'cfnresponse'", never signals CloudFormation,
+          # and the custom resource hangs until it times out and rolls the stack back.
+          import json, urllib.request
+          import boto3
 
           s3 = boto3.client('s3')
+
+          def send(event, context, status, data=None, reason=None):
+              body = json.dumps({
+                  'Status': status,
+                  'Reason': reason or f'See CloudWatch log stream {context.log_stream_name}',
+                  'PhysicalResourceId': event.get('PhysicalResourceId') or context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'NoEcho': False,
+                  'Data': data or {},
+              }).encode('utf-8')
+              req = urllib.request.Request(
+                  event['ResponseURL'], data=body, method='PUT',
+                  headers={'content-type': '', 'content-length': str(len(body))},
+              )
+              urllib.request.urlopen(req)
 
           def handler(event, context):
               props = event['ResourceProperties']
@@ -144,10 +167,10 @@ Resources:
                           },
                       )
                   # Delete is intentionally a no-op.
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, source)
+                  send(event, context, 'SUCCESS')
               except Exception as exc:
                   print(exc)
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(exc)}, source)
+                  send(event, context, 'FAILED', {'Error': str(exc)}, str(exc))
       Tags: [{ Key: Client, Value: SAP_Retail }, { Key: ManagedBy, Value: Kitstek }]
   ApplySourceBucketReplication:
     Type: Custom::SourceBucketReplication

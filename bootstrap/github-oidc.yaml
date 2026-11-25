@@ -12,6 +12,22 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: sap-retail-lz-iac
+  # GitHub now issues immutable subject claims: the sub carries the numeric owner and repository
+  # ids rather than their names, as "repo:owner@<ownerId>/repo@<repoId>:environment:name". A trust
+  # policy written against names alone is denied with
+  # "Not authorized to perform sts:AssumeRoleWithWebIdentity". Both forms are trusted below so the
+  # roles keep working whichever form the token carries. The id form is the stronger of the two: it
+  # survives a rename and cannot be claimed by someone who later registers the same name.
+  # Read the current values with:
+  #   gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+  GitHubOwnerId:
+    Type: String
+    Default: "149781888"
+    AllowedPattern: '^[0-9]+$'
+  GitHubRepoId:
+    Type: String
+    Default: "1462797653"
+    AllowedPattern: '^[0-9]+$'
   CreateOIDCProvider:
     Type: String
     Default: "true"
@@ -31,7 +47,10 @@ Resources:
       Url: https://token.actions.githubusercontent.com
       ClientIdList: [sts.amazonaws.com]
       Tags:
+        - { Key: Client, Value: SAP_Retail }
         - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
         - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
   TemplateBucket:
@@ -57,7 +76,10 @@ Resources:
             Status: Enabled
             NoncurrentVersionExpiration: { NoncurrentDays: 365 }
       Tags:
+        - { Key: Client, Value: SAP_Retail }
         - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
         - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
   # StackSets in member accounts read templates from here (service-managed StackSets fetch as the management account).
@@ -91,7 +113,10 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
       Tags:
+        - { Key: Client, Value: SAP_Retail }
         - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
         - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
   GitHubValidateRole:
@@ -113,6 +138,8 @@ Resources:
                 token.actions.githubusercontent.com:sub:
                   - !Sub "repo:${GitHubOwner}/${GitHubRepo}:pull_request"
                   - !Sub "repo:${GitHubOwner}/${GitHubRepo}:environment:verify"
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:pull_request"
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:verify"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/ReadOnlyAccess
       Policies:
@@ -133,7 +160,10 @@ Resources:
                 Action: sts:AssumeRole
                 Resource: arn:aws:iam::*:role/KitstekSecurityAuditRole
       Tags:
+        - { Key: Client, Value: SAP_Retail }
         - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
         - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
   GitHubDeployRole:
@@ -155,6 +185,8 @@ Resources:
                 token.actions.githubusercontent.com:sub:
                   - !Sub "repo:${GitHubOwner}/${GitHubRepo}:environment:management"
                   - !Sub "repo:${GitHubOwner}/${GitHubRepo}:environment:management-plan"
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:management"
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:management-plan"
       Policies:
         - PolicyName: cfn-deploy
           PolicyDocument:
@@ -186,7 +218,10 @@ Resources:
                 Action: [s3:PutObject, s3:GetObject]
                 Resource: !Sub "${TemplateBucket.Arn}/*"
       Tags:
+        - { Key: Client, Value: SAP_Retail }
         - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
         - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
 Outputs:

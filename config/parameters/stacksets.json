@@ -14,7 +14,7 @@
   { "ParameterKey": "SecurityAlertEmail", "ParameterValue": "security-alerts@example.com" },
   { "ParameterKey": "EnableAuditRoleStackSet", "ParameterValue": "true" },
   { "ParameterKey": "EnableSchedulerStackSet", "ParameterValue": "true" },
-  { "ParameterKey": "EnableLogArchiveStackSet", "ParameterValue": "false" },
+  { "ParameterKey": "EnableLogArchiveStackSet", "ParameterValue": "true" },
   { "ParameterKey": "EnableSecurityToolingStackSet", "ParameterValue": "true" },
   { "ParameterKey": "EnableNetworkHubStackSet", "ParameterValue": "false" },
   { "ParameterKey": "EnableApnTagEnforcerStackSet", "ParameterValue": "false" },

@@ -14,8 +14,14 @@ Parameters:
   # that omits the tag, which affects every principal in the organization: it must be simulated and
   # approved first. Design decision 21 records the current report-only position and this gate.
   AttachTagEnforcementScp: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
+  # Breaks the archive delete-deny open for the deployment roles. Normal state is 'false', which
+  # denies deletion to every principal including the pipeline: that unexempted deny is what makes
+  # the retention claim meaningful. Set to 'true' only to clear an empty orphaned archive bucket
+  # left by a failed deploy, and set it straight back. Never set it while the archive holds logs.
+  AllowArchiveCleanup: { Type: String, Default: 'false', AllowedValues: ['true', 'false'] }
 Conditions:
   WithTagEnforcement: !Equals [!Ref AttachTagEnforcementScp, 'true']
+  WithArchiveCleanup: !Equals [!Ref AllowArchiveCleanup, 'true']
 Resources:
   RootProtection:
     Type: AWS::Organizations::Policy
@@ -63,7 +69,26 @@ Resources:
       Content:
         Version: '2012-10-17'
         Statement:
-          - { Sid: DenyLogBucketDeletion, Effect: Deny, Action: [s3:DeleteBucket, s3:DeleteObject, s3:DeleteObjectVersion, s3:BypassGovernanceRetention, s3:PutBucketObjectLockConfiguration], Resource: ['arn:aws:s3:::sr-lz-log-archive-*', 'arn:aws:s3:::sr-lz-log-archive-*/*'] }
+          # Deletion and governance bypass are denied to EVERY principal, with no exemption for the
+          # deployment roles. Nothing in the pipeline has a reason to delete the archive, and an
+          # unexempted deny is what makes the retention claim meaningful.
+          - Sid: DenyLogBucketDeletion
+            Effect: Deny
+            Action: [s3:DeleteBucket, s3:DeleteObject, s3:DeleteObjectVersion, s3:BypassGovernanceRetention]
+            Resource: ['arn:aws:s3:::sr-lz-log-archive-*', 'arn:aws:s3:::sr-lz-log-archive-*/*']
+            Condition: !If
+              - WithArchiveCleanup
+              - ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec', 'arn:aws:iam::*:role/OrganizationAccountAccessRole'] }
+              - !Ref 'AWS::NoValue'
+          # Object Lock is set once, at bucket creation, by the StackSet execution role. Everyone
+          # else is denied, so the mode and retention period cannot be weakened afterwards. Without
+          # this exemption the deployment is blocked by this very policy: creating a bucket with a
+          # default retention calls PutObjectLockConfiguration.
+          - Sid: DenyObjectLockWeakening
+            Effect: Deny
+            Action: s3:PutBucketObjectLockConfiguration
+            Resource: ['arn:aws:s3:::sr-lz-log-archive-*', 'arn:aws:s3:::sr-lz-log-archive-*/*']
+            Condition: { ArnNotLike: { aws:PrincipalArn: ['arn:aws:iam::*:role/AWSControlTowerExecution', 'arn:aws:iam::*:role/stacksets-exec-*', 'arn:aws:iam::*:role/sr-lz-cfn-exec'] } }
   KenyaRegion:
     Type: AWS::Organizations::Policy
     Properties:

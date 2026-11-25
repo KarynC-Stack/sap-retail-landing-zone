@@ -1,18 +1,28 @@
 {
   "_comment": "Fresh SAP_Retail deployment order. All identifiers are supplied after bootstrap/adoption; no import from another organization is supported.",
+  "_comment_ou": "sr-lz-ou-* stacks register one OU at a time with the Control Tower baseline. Control Tower serialises these operations: apply them in listed order and wait for each EnabledBaseline to reach SUCCEEDED before the next. They are pipeline:false because Control Tower operations are long-running and must not be queued concurrently.",
   "region": "eu-west-1",
   "stacks": [
     { "name": "sr-lz-org-bootstrap", "template": "templates/00-bootstrap/organization.yaml", "parameters": null, "pipeline": false },
     { "name": "sr-lz-organization-foundation", "template": "templates/01-org/organization.yaml", "parameters": "config/parameters/organization.json", "pipeline": false },
     { "name": "sr-lz-controltower-service-roles", "template": "templates/02-controltower/service-roles.yaml", "parameters": null, "pipeline": false },
     { "name": "sr-lz-controltower", "template": "templates/02-controltower/landing-zone.yaml", "parameters": "config/parameters/controltower.json", "pipeline": false },
+    { "name": "sr-lz-ou-infrastructure", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-infrastructure.json", "pipeline": false },
+    { "name": "sr-lz-ou-workloads", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-workloads.json", "pipeline": false },
+    { "name": "sr-lz-ou-kenya", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-kenya.json", "pipeline": false },
+    { "name": "sr-lz-ou-kenya-prod", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-kenya-production.json", "pipeline": false },
+    { "name": "sr-lz-ou-kenya-nonprod", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-kenya-nonproduction.json", "pipeline": false },
+    { "name": "sr-lz-ou-uganda", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-uganda.json", "pipeline": false },
+    { "name": "sr-lz-ou-uganda-prod", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-uganda-production.json", "pipeline": false },
+    { "name": "sr-lz-ou-uganda-nonprod", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-uganda-nonproduction.json", "pipeline": false },
+    { "name": "sr-lz-ou-sandbox", "template": "templates/02-controltower/ou-governance.yaml", "parameters": "config/parameters/ou-sandbox.json", "pipeline": false },
     { "name": "sr-lz-log-archive", "template": "templates/05-logging/log-archive.yaml", "parameters": "config/parameters/log-archive.json", "pipeline": false },
-    { "name": "sr-lz-scps", "template": "templates/01-org/scps.yaml", "parameters": "config/parameters/scps.json", "pipeline": false },
-    { "name": "sr-lz-tag-policy", "template": "templates/01-org/tag-policy.yaml", "parameters": "config/parameters/tag-policy.json", "pipeline": false },
-    { "name": "sr-lz-identity", "template": "templates/03-identity/permission-sets.yaml", "parameters": "config/parameters/identity.json", "pipeline": false },
+    { "name": "sr-lz-scps", "template": "templates/01-org/scps.yaml", "parameters": "config/parameters/scps.json", "pipeline": true },
+    { "name": "sr-lz-tag-policy", "template": "templates/01-org/tag-policy.yaml", "parameters": "config/parameters/tag-policy.json", "pipeline": true },
+    { "name": "sr-lz-identity", "template": "templates/03-identity/permission-sets.yaml", "parameters": "config/parameters/identity.json", "pipeline": true },
     { "name": "sr-lz-break-glass", "template": "templates/03-identity/break-glass.yaml", "parameters": "config/parameters/break-glass.json", "pipeline": false },
-    { "name": "sr-lz-stacksets", "template": "templates/04-security/stacksets.yaml", "parameters": "config/parameters/stacksets.json", "pipeline": false },
-    { "name": "sr-lz-cost", "template": "templates/07-cost/cost-governance.yaml", "parameters": "config/parameters/cost.json", "pipeline": false },
-    { "name": "sr-lz-observability", "template": "templates/08-observability/security-monitoring.yaml", "parameters": "config/parameters/observability.json", "pipeline": false }
+    { "name": "sr-lz-stacksets", "template": "templates/04-security/stacksets.yaml", "parameters": "config/parameters/stacksets.json", "pipeline": true },
+    { "name": "sr-lz-cost", "template": "templates/07-cost/cost-governance.yaml", "parameters": "config/parameters/cost.json", "pipeline": true },
+    { "name": "sr-lz-observability", "template": "templates/08-observability/security-monitoring.yaml", "parameters": "config/parameters/observability.json", "pipeline": true }
   ]
 }

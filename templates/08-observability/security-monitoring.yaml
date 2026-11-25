@@ -119,6 +119,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   ConsoleSignInWithoutMfaAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -133,6 +139,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   UnauthorizedApiCallsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -147,6 +159,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   IamPolicyChangeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -161,6 +179,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   CloudTrailChangeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -175,6 +199,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   OrganizationChangeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -189,6 +219,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
   BreakGlassAssumedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -203,6 +239,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsTopic]
+      Tags:
+        - { Key: Client, Value: SAP_Retail }
+        - { Key: ManagedBy, Value: Kitstek }
+        - { Key: Country, Value: Shared }
+        - { Key: Environment, Value: Shared }
+        - { Key: aws-apn-id, Value: !Ref ApnTagValue }
 
   GovernanceDashboard:
     Type: AWS::CloudWatch::Dashboard

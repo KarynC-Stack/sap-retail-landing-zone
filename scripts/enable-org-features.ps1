@@ -12,5 +12,5 @@ if($LASTEXITCODE -ne 0 -or $caller -ne '<MANAGEMENT_ACCOUNT_ID>'){throw 'Use a v
  'Create the Access Analyzer service-linked role AWSServiceRoleForAccessAnalyzer in the management account before the Security Tooling StackSet, or the analyzers fail with AlreadyExists.',
  'Enable IAM Identity Center in the new organization, then record the discovered instance ARN and identity-store ID.',
  'Configure Security Hub delegated administration and central configuration after the Security Tooling account is adopted.',
- 'Activate cost allocation tags only after tag-policy evidence is approved.'
+ 'Activate cost allocation tags (decision 29). The keys appear only after AWS sees them on billable resources, up to 24 hours: aws ce update-cost-allocation-tags-status --cost-allocation-tags-status TagKey=Client,Status=Active TagKey=ManagedBy,Status=Active TagKey=Country,Status=Active TagKey=Environment,Status=Active TagKey=aws-apn-id,Status=Active --region us-east-1'
 ) | ForEach-Object { Write-Host "MANUAL APPROVAL REQUIRED: $_" }
